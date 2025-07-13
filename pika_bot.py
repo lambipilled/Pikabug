@@ -221,11 +221,8 @@ async def reveal(ctx):
 with open("creepy_facts.txt") as f:
     facts = [line.strip() for line in f if line.strip()]
 
-CHANNEL_IDS = [
-    1388158646973632685, 
-    1388397019479146580, 
-    1391641411929247764
-] 
+CHANNEL_IDS = [1388158646973632685],
+
 INTERVAL_HOURS = 10  # ← how many hours between posts
 
 @bot.event

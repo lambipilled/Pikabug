@@ -224,10 +224,10 @@ async def on_ready():
 @tasks.loop(hours=INTERVAL_HOURS)
 async def post_creepy_fact():
     for channel_id in CHANNEL_IDS:
-    channel = bot.get_channel(channel_id)
-    if channel:
-        fact = random.choice(facts)
-        await channel.send(fact)
+        channel = bot.get_channel(channel_id)
+        if channel:
+            fact = random.choice(facts)
+            await channel.send(fact)
 
 # Optional: Command to manually post one
 @bot.command(name="creepfact")

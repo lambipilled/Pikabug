@@ -79,6 +79,12 @@ responses = {
         "You are not invisible. Your presence matters, and you deserve to be acknowledged.",
         "It's okay to want attention. We all crave connection. How about we chat about something you love?",
         "What would you like attention for? I'm here to give you a moment to shine. Let's talk about your interests or passions.",
+
+    "fuckoff": [
+        "You're not a vibe bro 😭",
+        "NIGGAS BE SO ANNOYING BRO, NEVER FAILS!",
+        "Chat, can we get a point and fuckin laugh at this nigga?",
+        "Someone ban this nigga",
     ],
 
 }

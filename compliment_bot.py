@@ -127,4 +127,4 @@ async def sad(ctx, topic=None):
 
 
 import os
-bot.run(os.environ["DISCORD_TOKEN"]))
+bot.run(os.environ["DISCORD_TOKEN"])

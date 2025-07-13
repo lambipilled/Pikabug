@@ -82,12 +82,11 @@ responses = {
     ],
     "fuckoff": [
         "You're not a vibe bro 😭",
-        "NIGGAS BE SO ANNOYING BRO, NEVER FAILS!",
-        "Chat, can we get a point and fuckin laugh at this nigga?",
-        "Someone ban this nigga",
-    ], 
+        "N*GGAS BE SO ANNOYING BRO, NEVER FAILS!",
+        "Chat, can we get a point and fuckin laugh at this N*GGA?",
+        "Someone ban this n*gga",
+    ]
 }
-
   
 
 # Command template

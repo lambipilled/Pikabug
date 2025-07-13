@@ -225,7 +225,8 @@ INTERVAL_HOURS = 3  # ← how many hours between posts
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-    post_creepy_fact.start()
+    if not post_creepy_fact.is_running():  # ✅ Prevent double start
+        post_creepy_fact.start()
 
 @tasks.loop(hours=INTERVAL_HOURS)
 async def post_creepy_fact():

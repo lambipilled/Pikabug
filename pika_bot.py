@@ -223,4 +223,3 @@ async def reveal(ctx):
 # Insert your actual token below
 import os
 bot.run(os.getenv("DISCORD_TOKEN"))
-# Make sure to set your DISCORD_TOKEN in your environment variable

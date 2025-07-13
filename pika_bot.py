@@ -3,7 +3,7 @@ import random
 from discord.ext import commands, tasks
 import asyncio
 import os
-from google import genai
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 intents = discord.Intents.default()

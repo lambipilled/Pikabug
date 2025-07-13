@@ -223,7 +223,7 @@ async def on_ready():
 
 @tasks.loop(hours=INTERVAL_HOURS)
 async def post_creepy_fact():
-    for channel_id in = CHANNEL_IDS:
+    for channel_id in CHANNEL_IDS:
     channel = bot.get_channel(channel_id)
     if channel:
         fact = random.choice(facts)

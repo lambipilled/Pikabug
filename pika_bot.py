@@ -127,15 +127,9 @@ async def sad(ctx, topic=None):
     else:
         await ctx.send("Sorry, I don’t have sad messages for that topic yet.")
 
-# Word game bot logic
-import discord
-import random
-from discord.ext import commands
-
 # Load English word list
 with open("common_words.txt") as f:
     english_words = [word.strip() for word in f if 5 <= len(word.strip()) <= 7]
-
 
 # Store current word challenge
 current_word = None
@@ -143,14 +137,6 @@ scrambled_word = None
 
 revealed_indexes = set()  # tracks which letter positions are revealed
 hint_count = 0            # tracks how many hints have been used
-
-
-# Enable message content intent
-intents = discord.Intents.default()
-intents.message_content = True
-
-# Bot setup
-bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Start the game
 @bot.command(name='startgame')
@@ -164,7 +150,6 @@ async def startgame(ctx):
     hint_count = 0
 
     await ctx.send(f"🧠 Unscramble this word: **{scrambled_word}**")
-
 
 # Handle user guesses
 @bot.command(name='guess')

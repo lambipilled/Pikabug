@@ -124,6 +124,12 @@ async def attention(ctx):
     msg = random.choice(responses["attention"])
     await ctx.send(msg)
 
+
+@bot.command()
+async def fuckoff(ctx):
+    msg = random.choice(responses["fuckoff"])
+    await ctx.send(msg)
+
 # Optional: generic fallback command
 @bot.command()
 async def sad(ctx, topic=None):

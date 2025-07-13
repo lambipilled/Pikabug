@@ -85,7 +85,7 @@ responses = {
         "NIGGAS BE SO ANNOYING BRO, NEVER FAILS!",
         "Chat, can we get a point and fuckin laugh at this nigga?",
         "Someone ban this nigga",
-    ]
+    ], 
 }
 
   

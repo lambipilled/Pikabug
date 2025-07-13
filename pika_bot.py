@@ -2,6 +2,9 @@ import discord
 import random
 from discord.ext import commands, tasks
 import asyncio
+import os
+from google import genai
+from dotenv import load_dotenv
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -82,12 +85,11 @@ responses = {
     ],
     "fuckoff": [
         "You're not a vibe bro 😭",
-        "N*GGAS BE SO ANNOYING BRO, NEVER FAILS!",
-        "Chat, can we get a point and fuckin laugh at this n*gga?",
-        "Someone ban this n*gga",
+        "NIGGAS BE SO ANNOYING BRO, NEVER FAILS!",
+        "Chat, can we get a point and fuckin laugh at this nigga?",
+        "Someone ban this nigga",
     ]
 }
-  
 
 # Command template
 @bot.command()
@@ -218,9 +220,10 @@ async def reveal(ctx):
         current_word = None  # end the round
 
 @bot.command(name='bully')
-async def bully(ctx):
+async def bully(ctx)
     phrase = random.choice(bully_phrases)
     await ctx.send(phrase)
+
 
 # Load creepy facts from file
 with open("creepy_facts.txt") as f:
@@ -228,13 +231,6 @@ with open("creepy_facts.txt") as f:
 
 CHANNEL_IDS = [1388158646973632685],
 
-INTERVAL_HOURS = 10  # ← how many hours between posts
-
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    if not post_creepy_fact.is_running():  # ✅ Prevent double start
-        post_creepy_fact.start()
 
 @tasks.loop(hours=INTERVAL_HOURS)
 async def post_creepy_fact():
@@ -249,6 +245,22 @@ async def post_creepy_fact():
 async def creepfact(ctx):
     await ctx.send(random.choice(facts))
 
+@bot.command()
+async def gemini(ctx, *, prompt: str):
+    """Generate a response using Gemini."""
+    await ctx.send("🤖 Thinking...")
+
+    try:
+        response = genai.generate_text(
+            model="models/gemini-pro",
+            prompt=prompt,
+            temperature=0.7,
+            max_output_tokens=500
+        )
+        await ctx.send(response.result)
+    except Exception as e:
+        await ctx.send("❌ Gemini request failed.")
+        print("Gemini error:", e)
+
 # Insert your actual token below
-import os
 bot.run(os.getenv("DISCORD_TOKEN"))

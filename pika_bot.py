@@ -4,7 +4,6 @@ from discord.ext import commands, tasks
 import asyncio
 import os
 import google.generativeai as genai
-from dotenv import load_dotenv
 
 intents = discord.Intents.default()
 intents.message_content = True

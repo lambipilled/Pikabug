@@ -226,7 +226,7 @@ CHANNEL_IDS = [
     1388397019479146580, 
     1391641411929247764
 ] 
-INTERVAL_HOURS = 3  # ← how many hours between posts
+INTERVAL_HOURS = 10  # ← how many hours between posts
 
 @bot.event
 async def on_ready():

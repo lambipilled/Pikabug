@@ -239,7 +239,7 @@ async def post_creepy_fact():
 async def creepfact(ctx):
     await ctx.send(random.choice(facts))
 
-@bot.command()
+@bot.command(name="gemini")
 async def gemini(ctx, *, prompt: str):
     """Generate a response using Gemini."""
     await ctx.send("🤖 Thinking...")

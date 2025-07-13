@@ -219,12 +219,6 @@ async def reveal(ctx):
         await ctx.send(f"🕵️ The correct word was: **{current_word}**")
         current_word = None  # end the round
 
-@bot.command(name='bully')
-async def bully(ctx)
-    phrase = random.choice(bully_phrases)
-    await ctx.send(phrase)
-
-
 # Load creepy facts from file
 with open("creepy_facts.txt") as f:
     facts = [line.strip() for line in f if line.strip()]

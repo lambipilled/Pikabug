@@ -83,7 +83,7 @@ responses = {
     "fuckoff": [
         "You're not a vibe bro 😭",
         "N*GGAS BE SO ANNOYING BRO, NEVER FAILS!",
-        "Chat, can we get a point and fuckin laugh at this N*GGA?",
+        "Chat, can we get a point and fuckin laugh at this n*gga?",
         "Someone ban this n*gga",
     ]
 }

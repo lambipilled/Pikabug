@@ -1,6 +1,7 @@
 import discord
 import random
-from discord.ext import commands
+from discord.ext import commands, tasks
+import asyncio
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -204,6 +205,34 @@ async def reveal(ctx):
         await ctx.send(f"🕵️ The correct word was: **{current_word}**")
         current_word = None  # end the round
 
+# Load creepy facts from file
+with open("creepy_facts.txt") as f:
+    facts = [line.strip() for line in f if line.strip()]
+
+CHANNEL_IDS = [
+    1388158646973632685, 
+    1388397019479146580, 
+    1391641411929247764
+] 
+INTERVAL_HOURS = 3  # ← how many hours between posts
+
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+    post_creepy_fact.start()
+
+@tasks.loop(hours=INTERVAL_HOURS)
+async def post_creepy_fact():
+    for channel_id in = CHANNEL_IDS:
+    channel = bot.get_channel(channel_id)
+    if channel:
+        fact = random.choice(facts)
+        await channel.send(fact)
+
+# Optional: Command to manually post one
+@bot.command(name="creepfact")
+async def creepfact(ctx):
+    await ctx.send(random.choice(facts))
 
 # Insert your actual token below
 import os

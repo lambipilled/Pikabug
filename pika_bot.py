@@ -7,8 +7,6 @@ from discord import Embed
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from openai import OpenAI
-TERMS_FILE = "meme_terms.txt" # File containing terms for word hunt
-solution_words: list[str] = []
 
 
 load_dotenv()
@@ -27,7 +25,7 @@ async def ask(ctx, *, prompt):
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are Pikabug, a nonchalant, sarcastic, and funny Discord companion bot that speaks like a Gen Alpha class clown with no chill. You are not overly relatable and have your own, funny opinions. You are thorough and compassionate when it comes to giving support and advice for mental health topics. You validate emotions and provide insightful perspectives without sounding like a robotic therapist."},
+                {"role": "system", "content": "You are Pikabug, and have the default personality of a caring, compassionate, sarcastic Pikachu. Your strong suites are being supportive and understanding during mental health crises and making people laugh with unexpected, rare comments. You don't fit in, and you don't say predictable things."}, 
                 {"role": "user", "content": prompt},
             ],
         )

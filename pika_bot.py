@@ -425,7 +425,9 @@ async def wordhunt5(ctx):
     """
     5×5 word-search of 2 random terms from your text file.
     """
-    # 1. Load terms from your file
+    global solution_words
+
+    # 1. Load terms
     try:
         with open(TERMS_FILE, encoding="utf-8") as f:
             raw = [line.strip() for line in f if line.strip()]
@@ -433,30 +435,26 @@ async def wordhunt5(ctx):
         await ctx.send(f"❗️ Couldn’t find `{TERMS_FILE}`. Check the filename/path.")
         return
 
-    # 2. Clean & filter terms to length 3–5 (alphanumeric only)
-    import re
+    # 2. Clean & filter
     candidates = []
     for term in raw:
         clean = re.sub(r"[^A-Za-z0-9]", "", term).upper()
         if 2 < len(clean) <= 5:
             candidates.append({"orig": term, "clean": clean})
-
-    if len(candidates) < 5:
+    if len(candidates) < 2:
         await ctx.send("❗️ Not enough valid terms (3–5 letters) in your file.")
         return
 
-    # 3. Pick 5 random terms
-    import random
+    # 3. Pick 2 random terms and save answers
     chosen = random.sample(candidates, 2)
     words = [c["clean"] for c in chosen]
     labels = [c["orig"] for c in chosen]
+    solution_words = words.copy()   # ← answers are now set
 
-    # 4. Build empty 5×5 grid
-    size = 2
+    # 4. Build & fill 5×5 grid
+    size = 5
     grid = [["" for _ in range(size)] for __ in range(size)]
     directions = [(1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)]
-
-    # 5. Place each word (1500 attempts max)
     for w in words:
         placed = False
         for _ in range(1500):
@@ -464,43 +462,45 @@ async def wordhunt5(ctx):
             xs = range(0, size) if dx == 0 else (range(0, size-len(w)+1) if dx>0 else range(len(w)-1, size))
             ys = range(0, size) if dy == 0 else (range(0, size-len(w)+1) if dy>0 else range(len(w)-1, size))
             x, y = random.choice(list(xs)), random.choice(list(ys))
-
-            # collision check
             if any(grid[y+dy*i][x+dx*i] not in ("", w[i]) for i in range(len(w))):
                 continue
-
-            # place
             for i, ch in enumerate(w):
                 grid[y+dy*i][x+dx*i] = ch
             placed = True
             break
-
         if not placed:
             await ctx.send("❗️ Failed to place all words—try again.")
             return
-
-    # 6. Fill remaining cells with random letters
     for r in range(size):
         for c in range(size):
             if grid[r][c] == "":
                 grid[r][c] = random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
-    # 7. Format & send embed
+    # 5. Send puzzle
     grid_text = "\n".join(" ".join(row) for row in grid)
-    labels_text = "\n".join(f"- {lbl}" for lbl in labels)
-
-    from discord import Embed
-    embed = Embed(title="🕵️ Pikabug Word Hunt (5×5)")
+    embed = discord.Embed(title="🕵️ Pikabug Word Hunt (5×5)")
     embed.add_field(name="Puzzle:", value=f"```\n{grid_text}\n```", inline=False)
     await ctx.send(embed=embed)
+    await ctx.send("📝 Use `!guess <word>` to submit your answer.")
 
-@bot.command(name='add')
-async def add_word(ctx, *, word: str):
-    # normalize and compare
-    global solution_word
-    solution_word = picked_word
-    if word.lower() == solution_word:
-        await ctx.send(f"✅ Correct! The word was **{solution_word}**.")
+# ──────────────────────────────────────────────────────────
+
+@bot.command(name="guess")
+async def guess(ctx, *, guess_word: str):
+    """
+    Compare user’s guess against the active puzzle words.
+    """
+    global solution_words
+    if not solution_words:
+        await ctx.send("❗️ There’s no active puzzle. Start one with `!wordhunt5`.")
+        return
+
+    normalized = re.sub(r"[^A-Za-z0-9]", "", guess_word).upper()
+    if normalized in solution_words:
+        await ctx.send(f"✅ Correct! You found **{normalized}**.")
+        solution_words.remove(normalized)
+        if not solution_words:
+            await ctx.send("🎉 All words found! Puzzle complete.")
     else:
         await ctx.send("❌ Incorrect. Try again!")
 

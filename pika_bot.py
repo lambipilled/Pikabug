@@ -8,7 +8,8 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from openai import OpenAI
 TERMS_FILE = "meme_terms.txt" # File containing terms for word hunt
-solution_word: str = None  # Global variable to store the solution word
+solution_words: list[str] = []
+
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -419,21 +420,32 @@ async def pikahelp_command(ctx):
 """
     await ctx.send(pikahelp_text)
 
-
-@bot.command(name="wordhunt5")
-async def wordhunt5(ctx):
+# before: async def wordhunt(ctx):
+@bot.command(name='wordhunt')
+async def wordhunt(ctx, num_words: int = 2):
     """
-    5×5 word-search of 2 random terms from your text file.
+    Usage:
+      !wordhunt           → defaults to 2 words
+      !wordhunt 5         → place 5 words
     """
-    global solution_words
+    # load your full list once (outside the function)
+    # e.g. WORD_LIST = open('meme_terms.txt').read().split()
 
-    # 1. Load terms
-    try:
-        with open(TERMS_FILE, encoding="utf-8") as f:
-            raw = [line.strip() for line in f if line.strip()]
-    except FileNotFoundError:
-        await ctx.send(f"❗️ Couldn’t find `{TERMS_FILE}`. Check the filename/path.")
+    # inside the command:
+    chosen = random.sample(meme_terms.txt, min(num_words, len(meme_terms.txt)))
+    grid = create_empty_grid()   # however you do it
+    placed = []
+    for word in chosen:
+        if place_word(grid, word):   # your placement helper
+            placed.append(word)
+    if len(placed) < len(chosen):
+        await ctx.send(
+            f"❗ Could only place {len(placed)}/{len(chosen)} words—try again."
+        )
         return
+    # otherwise render your grid
+    await ctx.send(render_grid(grid))
+
 
     # 2. Clean & filter
     candidates = []
@@ -445,11 +457,6 @@ async def wordhunt5(ctx):
         await ctx.send("❗️ Not enough valid terms (3–5 letters) in your file.")
         return
 
-    # 3. Pick 2 random terms and save answers
-    chosen = random.sample(candidates, 2)
-    words = [c["clean"] for c in chosen]
-    labels = [c["orig"] for c in chosen]
-    solution_words = words.copy()   # ← answers are now set
 
     # 4. Build & fill 5×5 grid
     size = 5
@@ -481,12 +488,12 @@ async def wordhunt5(ctx):
     embed = discord.Embed(title="🕵️ Pikabug Word Hunt (5×5)")
     embed.add_field(name="Puzzle:", value=f"```\n{grid_text}\n```", inline=False)
     await ctx.send(embed=embed)
-    await ctx.send("📝 Use `!guess <word>` to submit your answer.")
+    await ctx.send("📝 Use `!add <word>` to submit your answer.")
 
 # ──────────────────────────────────────────────────────────
 
-@bot.command(name="guess")
-async def guess(ctx, *, guess_word: str):
+@bot.command(name="add")
+async def add(ctx, *, add_word : str):
     """
     Compare user’s guess against the active puzzle words.
     """
@@ -495,7 +502,7 @@ async def guess(ctx, *, guess_word: str):
         await ctx.send("❗️ There’s no active puzzle. Start one with `!wordhunt5`.")
         return
 
-    normalized = re.sub(r"[^A-Za-z0-9]", "", guess_word).upper()
+    normalized = re.sub(r"[^A-Za-z0-9]", "", add_word).upper()
     if normalized in solution_words:
         await ctx.send(f"✅ Correct! You found **{normalized}**.")
         solution_words.remove(normalized)
@@ -503,17 +510,6 @@ async def guess(ctx, *, guess_word: str):
             await ctx.send("🎉 All words found! Puzzle complete.")
     else:
         await ctx.send("❌ Incorrect. Try again!")
-
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-    content = message.content.lower().strip()
-    if solution_word and content == solution_word:
-        await message.channel.send(f"✅ Correct! The word was **{solution_word}**.")
-        # Optionally reset for next round:
-        # solution_word = None
-    await bot.process_commands(message)
 
 
 # Insert your actual token below

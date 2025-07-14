@@ -339,5 +339,28 @@ async def on_ready():
 async def creepfact(ctx):
     await ctx.send(random.choice(facts))
 
+@bot.command(name="help")
+async def help_command(ctx):
+    help_text = """
+🧠 **Pikabug Commands**:
+
+`!ask` — Triggers OpenAI responses, can be used for questions, advice, or entertainment!  
+`!creepfact` — Sends a random creepy fact. 
+`!lonely` — Get a comforting message for loneliness.  
+`!dysmorphia` — Get a supportive message for body image issues.  
+`!comfort` — Receive general comfort and support.  
+`!suicidal` — Get compassionate support for suicidal thoughts.  
+`!anxious` — Receive calming messages for anxiety.  
+`!addiction` — Receive supportive messages for addiction struggles.  
+`!attention` — Receive messages to help with feelings of neglect or invisibility.  
+`!fuckoff` — A humorous response to annoying behavior. 
+`!startgame` — Start the word unscrambling game  
+`!guess [word]` — Guess the word from the last scramble  
+`!hint` — Get a hint for the current word, there are two hint options.
+`!reveal` — Reveal the current word and end the round  
+`!help` — Show this list of commands
+"""
+    await ctx.send(help_text)
+
 # Insert your actual token below
 bot.run(os.getenv("DISCORD_TOKEN"))

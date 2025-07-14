@@ -67,8 +67,8 @@ async def prefixgame(ctx):
         while True:
             msg = await bot.wait_for("message", timeout=10.0, check=check)
             word = msg.content.strip().lower()
-            if word in WORDS:
-                if word not in submissions or len(word) > 5 len(submissions[word]):
+            if word in WORDS and len(word) > 5:
+                if word not in submissions or len(word) > len(submissions[word]):
                     submissions[msg.author] = word
     except asyncio.TimeoutError:
         pass

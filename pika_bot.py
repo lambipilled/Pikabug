@@ -18,7 +18,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 @bot.command()
 async def ask(ctx, *, prompt):
     await ctx.send("🧠 Thinking...")
-
+try:
     response = client.chat.completions.create(
         model="gpt-4",  # or "gpt-4" if you're using that
         messages=[

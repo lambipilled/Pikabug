@@ -339,9 +339,9 @@ async def on_ready():
 async def creepfact(ctx):
     await ctx.send(random.choice(facts))
 
-@bot.command(name="help")
-async def help_command(ctx):
-    help_text = """
+@bot.command(name="pikahelp")
+async def pikahelp_command(ctx):
+    pikahelp_text = """
 🧠 **Pikabug Commands**:
 
 `!ask` — Triggers OpenAI responses, can be used for questions, advice, or entertainment!  
@@ -358,9 +358,9 @@ async def help_command(ctx):
 `!guess [word]` — Guess the word from the last scramble  
 `!hint` — Get a hint for the current word, there are two hint options.
 `!reveal` — Reveal the current word and end the round  
-`!help` — Show this list of commands
+`!pikahelp` — Show this list of commands
 """
-    await ctx.send(help_text)
+    await ctx.send(pikahelp_text)
 
 # Insert your actual token below
 bot.run(os.getenv("DISCORD_TOKEN"))

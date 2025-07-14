@@ -3,7 +3,7 @@ import random
 from discord.ext import commands, tasks
 import asyncio
 import os
-import google.generativeai as genai
+from dotenv import load_dotenv
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -222,8 +222,9 @@ async def reveal(ctx):
 with open("creepy_facts.txt") as f:
     facts = [line.strip() for line in f if line.strip()]
 
-CHANNEL_IDS = [1388158646973632685],
-
+CHANNEL_IDS = [1388158646973632685,
+              1388397019479146580
+]
 
 @tasks.loop(hours=INTERVAL_HOURS)
 async def post_creepy_fact():
@@ -237,23 +238,6 @@ async def post_creepy_fact():
 @bot.command(name="creepfact")
 async def creepfact(ctx):
     await ctx.send(random.choice(facts))
-
-@bot.command(name="gemini")
-async def gemini(ctx, *, prompt: str):
-    """Generate a response using Gemini."""
-    await ctx.send("🤖 Thinking...")
-
-    try:
-        response = genai.generate_text(
-            model="models/gemini-pro",
-            prompt=prompt,
-            temperature=0.7,
-            max_output_tokens=500
-        )
-        await ctx.send(response.result)
-    except Exception as e:
-        await ctx.send("❌ Gemini request failed.")
-        print("Gemini error:", e)
 
 # Insert your actual token below
 bot.run(os.getenv("DISCORD_TOKEN"))

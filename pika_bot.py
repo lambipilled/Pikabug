@@ -300,8 +300,8 @@ revealed_indexes = set()  # tracks which letter positions are revealed
 hint_count = 0            # tracks how many hints have been used
 
 # Start the game
-@bot.command(name='startgame')
-async def startgame(ctx):
+@bot.command(name='unscramble')
+async def unscramble(ctx):
     global current_word, scrambled_word, revealed_indexes, hint_count
     current_word = random.choice(english_words)
     scrambled_word = ''.join(random.sample(current_word, len(current_word)))
@@ -317,7 +317,7 @@ async def startgame(ctx):
 async def guess(ctx, user_guess: str):
     global current_word
     if current_word is None:
-        await ctx.send("❗ No game running. Start one with `!startgame`.")
+        await ctx.send("❗ No game running. Start one with `!unscramble`.")
         return
 
     if user_guess.lower() == current_word:
@@ -330,7 +330,7 @@ async def hint(ctx):
     global current_word, revealed_indexes, hint_count
 
     if current_word is None:
-        await ctx.send("❗ No game is active. Start with `!startgame`.")
+        await ctx.send("❗ No game is active. Start with `!unscramble`.")
         return
 
     hint_count += 1

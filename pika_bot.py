@@ -89,40 +89,116 @@ responses = {
     ]
 }
 
-# Command template
+last_lonely_response = None  # global memory of the last message
+
 @bot.command()
 async def lonely(ctx):
-    msg = random.choice(responses["lonely"])
+    global last_lonely_response
+    available = responses["lonely"]
+
+    # Retry picking until it's different, or give up after 5 tries
+    for _ in range(5):
+        msg = random.choice(available)
+        if msg != last_lonely_response:
+            break
+
+    last_lonely_response = msg
     await ctx.send(msg)
+
+last_dysmorphia_response = None  # global memory of the last message
 
 @bot.command()
 async def dysmorphia(ctx):
-    msg = random.choice(responses["dysmorphia"])
+    global last_dysmorphia_response
+    available = responses["dysmorphia"]
+
+    # Retry picking until it's different, or give up after 5 tries
+    for _ in range(5):
+        msg = random.choice(available)
+        if msg != last_dysmorphia_response:
+            break
+
+    last_dysmorphia_response = msg
     await ctx.send(msg)
+
+last_comfort_response = None  # global memory of the last message
 
 @bot.command()
 async def comfort(ctx):
-    msg = random.choice(responses["comfort"])
+    global last_comfort_response
+    available = responses["comfort"]
+
+    # Retry picking until it's different, or give up after 5 tries
+    for _ in range(5):
+        msg = random.choice(available)
+        if msg != last_comfort_response:
+            break
+
+    last_comfort_response = msg
     await ctx.send(msg)
+
+last_suicidal_response = None  # global memory of the last message
 
 @bot.command()
 async def suicidal(ctx):
-    msg = random.choice(responses["suicidal"])
+    global last_suicidal_response
+    available = responses["suicidal"]
+
+    # Retry picking until it's different, or give up after 5 tries
+    for _ in range(5):
+        msg = random.choice(available)
+        if msg != last_suicidal_response:
+            break
+
+    last_suicidal_response = msg
     await ctx.send(msg)
+
+last_anxious_response = None  # global memory of the last message
 
 @bot.command()
 async def anxious(ctx):
-    msg = random.choice(responses["anxious"])
+    global last_anxious_response
+    available = responses["anxious"]
+
+    # Retry picking until it's different, or give up after 5 tries
+    for _ in range(5):
+        msg = random.choice(available)
+        if msg != last_anxious_response:
+            break
+
+    last_anxious_response = msg
     await ctx.send(msg)
+
+last_addiction_response = None  # global memory of the last message
 
 @bot.command()
 async def addiction(ctx):
-    msg = random.choice(responses["addiction"])
+    global last_addiction_response
+    available = responses["addiction"]
+
+    # Retry picking until it's different, or give up after 5 tries
+    for _ in range(5):
+        msg = random.choice(available)
+        if msg != last_addiction_response:
+            break
+
+    last_addiction_response = msg
     await ctx.send(msg)
+
+last_attention_response = None  # global memory of the last message
 
 @bot.command()
 async def attention(ctx):
-    msg = random.choice(responses["attention"])
+    global last_attention_response
+    available = responses["attention"]
+
+    # Retry picking until it's different, or give up after 5 tries
+    for _ in range(5):
+        msg = random.choice(available)
+        if msg != last_attention_response:
+            break
+
+    last_attention_response = msg
     await ctx.send(msg)
 
 

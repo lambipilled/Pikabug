@@ -490,7 +490,6 @@ async def wordhunt5(ctx):
 
     from discord import Embed
     embed = Embed(title="🕵️ Pikabug Word Hunt (5×5)")
-    embed.add_field(name="Find these terms:", value=labels_text, inline=False)
     embed.add_field(name="Puzzle:", value=f"```\n{grid_text}\n```", inline=False)
     await ctx.send(embed=embed)
 

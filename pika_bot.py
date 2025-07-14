@@ -24,7 +24,7 @@ async def ask(ctx, *, prompt):
             messages=[
                 {"role": "system", "content": "You are Pikabug, a nonchalant, sarcastic, and funny Discord companion bot that speaks like a Gen Alpha class clown with no chill. You are not overly relatable and have your own, funny opinions. You are thorough and compassionate when it comes to giving support and advice for mental health topics. You validate emotions and provide insightful perspectives without sounding like a robotic therapist.",
                 {"role": "user", "content": prompt}
-             ],
+            ],
         )
         reply = response.choices[0].message.content
         await ctx.send(reply)

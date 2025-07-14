@@ -8,6 +8,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from openai import OpenAI
 TERMS_FILE = "meme_terms.txt" # File containing terms for word hunt
+solution_word: str = None  # Global variable to store the solution word
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -513,7 +514,6 @@ async def on_message(message):
         # Optionally reset for next round:
         # solution_word = None
     await bot.process_commands(message)
-
 
 
 # Insert your actual token below

@@ -1,7 +1,8 @@
 import discord
 import random
 import asyncio
-import os, requests, re 
+import os
+import re
 from discord import Embed
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
@@ -416,91 +417,78 @@ async def pikahelp_command(ctx):
 """
     await ctx.send(pikahelp_text)
 
-def fetch_meme_terms(category="Internet_memes"):
+@bot.command(name="wordhunt5")
+async def wordhunt5(ctx):
     """
-    Uses the MediaWiki API to get page titles from the given category.
-    Returns a list of dicts: {'term': original title, 'clean': uppercase nospace}.
+    5×5 word-search of 5 random terms from your text file.
     """
-    API = "https://en.wikipedia.org/w/api.php"
-    params = {
-        "action": "query",
-        "list": "categorymembers",
-        "cmtitle": f"Category:{category}",
-        "cmlimit": "500",
-        "format": "json"
-    }
-    data = requests.get(API, params=params).json()
-    titles = [item["title"] for item in data["query"]["categorymembers"]]
-    terms = []
-    for t in titles:
-        clean = re.sub(r'[^A-Za-z0-9]', '', t).upper()
-        if 3 <= len(clean) <= 8:
-            terms.append({"term": t, "clean": clean})
-    return terms
-@bot.command(name="wordhunt")
-async def word_hunt(ctx, size: int = 4):
-    """
-    Generates a word-search puzzle of given size (4–8),
-    hiding 5 random meme/pop-culture terms.
-    """
-    # 1. Validate size
-    if size < 4 or size > 8:
-        await ctx.send("Size must be between 4 and 8.")
+    # 1. Load terms from your file
+    try:
+        with open(TERMS_FILE, encoding="utf-8") as f:
+            raw = [line.strip() for line in f if line.strip()]
+    except FileNotFoundError:
+        await ctx.send(f"❗️ Couldn’t find `{TERMS_FILE}`. Check the filename/path.")
         return
 
-    # 2. Load and filter terms
-    all_terms = fetch_meme_terms()
-    fits = [t for t in all_terms if len(t["clean"]) <= size]
-    if len(fits) < 5:
-        await ctx.send("Not enough terms fit that size. Try a larger grid.")
+    # 2. Clean & filter terms to length 3–5 (alphanumeric only)
+    import re
+    candidates = []
+    for term in raw:
+        clean = re.sub(r"[^A-Za-z0-9]", "", term).upper()
+        if 2 < len(clean) <= 5:
+            candidates.append({"orig": term, "clean": clean})
+
+    if len(candidates) < 5:
+        await ctx.send("❗️ Not enough valid terms (3–5 letters) in your file.")
         return
-    chosen = random.sample(fits, 5)
+
+    # 3. Pick 5 random terms
+    import random
+    chosen = random.sample(candidates, 5)
     words = [c["clean"] for c in chosen]
-    labels = [c["term"] for c in chosen]
+    labels = [c["orig"] for c in chosen]
 
-    # 3. Prepare empty grid
+    # 4. Build empty 5×5 grid
+    size = 5
     grid = [["" for _ in range(size)] for __ in range(size)]
     directions = [(1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)]
 
-    # 4. Place each word
+    # 5. Place each word (200 attempts max)
     for w in words:
         placed = False
-        for _ in range(500):
+        for _ in range(200):
             dx, dy = random.choice(directions)
-            # compute start ranges
-            xs = range(0, size) if dx == 0 else (range(0, size - len(w)+1) if dx>0 else range(len(w)-1, size))
-            ys = range(0, size) if dy == 0 else (range(0, size - len(w)+1) if dy>0 else range(len(w)-1, size))
-            x = random.choice(list(xs)); y = random.choice(list(ys))
-            # check collision
-            ok = True
-            for i, ch in enumerate(w):
-                nx, ny = x + dx*i, y + dy*i
-                if grid[ny][nx] not in ("", ch):
-                    ok = False; break
-            if not ok:
+            xs = range(0, size) if dx == 0 else (range(0, size-len(w)+1) if dx>0 else range(len(w)-1, size))
+            ys = range(0, size) if dy == 0 else (range(0, size-len(w)+1) if dy>0 else range(len(w)-1, size))
+            x, y = random.choice(list(xs)), random.choice(list(ys))
+
+            # collision check
+            if any(grid[y+dy*i][x+dx*i] not in ("", w[i]) for i in range(len(w))):
                 continue
+
             # place
             for i, ch in enumerate(w):
-                grid[y + dy*i][x + dx*i] = ch
+                grid[y+dy*i][x+dx*i] = ch
             placed = True
             break
+
         if not placed:
-            await ctx.send("Couldn’t place all words—try a different size.")
+            await ctx.send("❗️ Failed to place all words—try again.")
             return
 
-    # 5. Fill blanks
-    for row in range(size):
-        for col in range(size):
-            if grid[row][col] == "":
-                grid[row][col] = random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    # 6. Fill remaining cells with random letters
+    for r in range(size):
+        for c in range(size):
+            if grid[r][c] == "":
+                grid[r][c] = random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
-    # 6. Build display strings
-    grid_text = "\n".join(" ".join(r) for r in grid)
-    list_text = "\n".join(labels)
+    # 7. Format & send embed
+    grid_text = "\n".join(" ".join(row) for row in grid)
+    labels_text = "\n".join(f"- {lbl}" for lbl in labels)
 
-    # 7. Send embed
-    embed = Embed(title=f"Word Hunt Puzzle ({size}×{size})")
-    embed.add_field(name="Find these:", value=list_text, inline=False)
+    from discord import Embed
+    embed = Embed(title="🕵️ Pikabug Word Hunt (5×5)")
+    embed.add_field(name="Find these terms:", value=labels_text, inline=False)
     embed.add_field(name="Puzzle:", value=f"```\n{grid_text}\n```", inline=False)
     await ctx.send(embed=embed)
 

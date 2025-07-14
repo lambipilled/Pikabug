@@ -26,11 +26,10 @@ try:
             {"role": "user", "content": prompt}
         ]
     )
-
     reply =  response.choices[0].message.content.strip()
     await ctx.send(reply)
 
-except Exception as e:
+    except Exception as e:
         await ctx.send(f"Error: {e}")
 
 # Support bot logic 

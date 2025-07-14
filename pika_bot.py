@@ -276,9 +276,20 @@ async def attention(ctx):
     await ctx.send(msg)
 
 
+last_lonely_response = None  # global memory of the last message
+
 @bot.command()
 async def fuckoff(ctx):
-    msg = random.choice(responses["fuckoff"])
+    global last_lonely_response
+    available = responses["fuckoff"]
+
+    # Retry picking until it's different, or give up after 5 tries
+    for _ in range(5):
+        msg = random.choice(available)
+        if msg != last_lonely_response:
+            break
+
+    last_lonely_response = msg
     await ctx.send(msg)
 
 # Optional: generic fallback command

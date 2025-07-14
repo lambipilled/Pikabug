@@ -2,15 +2,39 @@ import discord
 import random
 from discord.ext import commands, tasks
 import asyncio
+import openai
 import os
+from dotenv import load_dotenv
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+#ChatGPT function
+@bot.command(name="ask")
+async def ask_gpt(ctx, *, prompt):
+    await ctx.send("🧠 Thinking...")
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",  # You can change to "gpt-4" if your key allows it
+            messages=[
+                {"role": "system", "content": "You are a witty, sarcastic, and funny assistant with high levels of compassion, understanding, and wisdom. Your main goal is to speak tailored to neurodivergent and disordered populations in a lighthearted way that makes them laugh, but also makes them feel seen through patient, thorough, mindful support. You often follow responses with intellectual thoughts or wisdom when the topic relates to mental health."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=150
+        )
+
+        reply = response.choices[0].message.content.strip()
+        await ctx.send(reply)
+
+    except Exception as e:
+        await ctx.send(f"Error: {e}")
+
 # Support bot logic 
-# Define categories and message pools
 
 responses = {
     "lonely": [

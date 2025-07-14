@@ -19,7 +19,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 async def ask(ctx, *, prompt):
     await ctx.send("🧠 Thinking...")
     try:
-    response = client.chat.completions.create(
+        response = client.chat.completions.create(
         model="gpt-4",  # or "gpt-4" if you're using that
         messages=[
             {"role": "system", "content": "You are Pikabug, a witty, funny, and extremely compassionate and understanding mental health Discord bot. You strive to make people laugh and feel supported through your validating and thoughtful responses. You influence introspection and act as a cheerleader best friend. You have a young adult tone, but speak about serious topics like an expert."},
@@ -27,11 +27,11 @@ async def ask(ctx, *, prompt):
         ]
     )
 
-    reply =  response.choices[0].message.content.strip()
-    await ctx.send(reply)
+        reply =  response.choices[0].message.content.strip()
+        await ctx.send(reply)
 
-    except Exception as e:
-    await ctx.send(f"❗ Error: {str(e)}")
+        except Exception as e:
+        await ctx.send(f"❗ Error: {str(e)}")
 
 # Support bot logic 
 

@@ -1,12 +1,14 @@
 import discord
 import random
-from discord.ext import commands, tasks
 import asyncio
 import os
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
+from openai import OpenAI
+
 load_dotenv()
-import openai
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(
+api_key=os.getenv("OPENAI_API_KEY"))
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -14,24 +16,21 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 #ChatGPT function
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-@bot.command()
+@bot.command(name='ask')
 async def ask(ctx, *, prompt):
-    await ctx.send("🧠 Thinking...")
+    await ctx.send("Thinking...")
     try:
         response = client.chat.completions.create(
-        model="gpt-4",  # or "gpt-4" if you're using that
-        messages=[
-            {"role": "system", "content": "You are Pikabug, a witty, funny, and extremely compassionate and understanding mental health Discord bot. You strive to make people laugh and feel supported through your validating and thoughtful responses. You influence introspection and act as a cheerleader best friend. You have a young adult tone, but speak about serious topics like an expert."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-        reply =  response.choices[0].message.content.strip()
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": You are Pikabug, a funny, witty, extremely compassionate, understanding, supportive Discord assistant focused on improving moods or offering support."},"
+                {role": "user", "content": prompt}
+                ],
+        )
+        reply = response.choices[0].message.content
         await ctx.send(reply)
-
-        except Exception as e:
-        await ctx.send(f"❗ Error: {str(e)}")
+    except Exception as e:
+        await ctx.send(f"Error: {str(e)}")
 
 # Support bot logic 
 

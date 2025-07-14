@@ -5,8 +5,8 @@ import asyncio
 import os
 from dotenv import load_dotenv
 load_dotenv()
-from openai import OpenAI
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+import openai
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -14,7 +14,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 #ChatGPT function
-
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 @bot.command()
 async def ask(ctx, *, prompt):
     await ctx.send("🧠 Thinking...")
@@ -26,10 +26,12 @@ try:
             {"role": "user", "content": prompt}
         ]
     )
+
     reply =  response.choices[0].message.content.strip()
     await ctx.send(reply)
 
-
+    except Exception as e:
+        await ctx.send(f"❗ Error: {str(e)}")
 
 # Support bot logic 
 

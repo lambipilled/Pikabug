@@ -231,7 +231,9 @@ async def on_ready():
     for channel_id in CHANNEL_IDS:
         channel = bot.get_channel(channel_id)
         if channel:
-            await post_creepy_facts(channel)
+            fact = random.choice(facts)
+            await channel.send(f"🕷️ Creepy Fact: {fact}")
+        post_creepy_fact.start(channel_id)
 
 # Optional: Command to manually post one
 @bot.command(name="creepfact")

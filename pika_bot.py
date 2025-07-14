@@ -16,6 +16,8 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+TERMS_FILE = "meme_terms.txt"
+
 #ChatGPT function
 @bot.command(name='ask')
 async def ask(ctx, *, prompt):

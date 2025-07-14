@@ -496,6 +496,8 @@ async def wordhunt5(ctx):
 @bot.command(name='add')
 async def add_word(ctx, *, word: str):
     # normalize and compare
+    global solution_word
+    solution_word = picked_word
     if word.lower() == solution_word:
         await ctx.send(f"✅ Correct! The word was **{solution_word}**.")
     else:
@@ -506,10 +508,12 @@ async def on_message(message):
     if message.author.bot:
         return
     content = message.content.lower().strip()
-    if content == solution_word:
+    if solution_word and content == solution_word:
         await message.channel.send(f"✅ Correct! The word was **{solution_word}**.")
-    # ensure other commands still fire
+        # Optionally reset for next round:
+        # solution_word = None
     await bot.process_commands(message)
+
 
 
 # Insert your actual token below

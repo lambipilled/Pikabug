@@ -7,6 +7,7 @@ from discord import Embed
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from openai import OpenAI
+TERMS_FILE = "meme_terms.txt" # File containing terms for word hunt
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -15,8 +16,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
-
-TERMS_FILE = "meme_terms.txt"
 
 #ChatGPT function
 @bot.command(name='ask')
@@ -418,6 +417,7 @@ async def pikahelp_command(ctx):
 `!pikahelp` — Show this list of commands
 """
     await ctx.send(pikahelp_text)
+
 
 @bot.command(name="wordhunt5")
 async def wordhunt5(ctx):

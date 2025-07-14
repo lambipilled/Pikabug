@@ -2,8 +2,6 @@ import discord
 import random
 import asyncio
 import os
-import re
-from discord import Embed
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -417,6 +415,6 @@ async def pikahelp_command(ctx):
 `!pikahelp` — Show this list of commands
 """
     await ctx.send(pikahelp_text)
-   
+
 # Insert your actual token below
 bot.run(os.getenv("DISCORD_TOKEN"))

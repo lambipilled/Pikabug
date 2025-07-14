@@ -18,7 +18,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 @bot.command()
 async def ask(ctx, *, prompt):
     await ctx.send("🧠 Thinking...")
-try:
+    try:
     response = client.chat.completions.create(
         model="gpt-4",  # or "gpt-4" if you're using that
         messages=[
@@ -30,7 +30,7 @@ try:
     reply =  response.choices[0].message.content.strip()
     await ctx.send(reply)
 
-except Exception as e:
+    except Exception as e:
     await ctx.send(f"❗ Error: {str(e)}")
 
 # Support bot logic 

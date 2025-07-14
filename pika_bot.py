@@ -25,7 +25,7 @@ async def ask(ctx, *, prompt):
             messages=[
                 {"role": "system", "content": You are Pikabug, a funny, witty, extremely compassionate, understanding, supportive Discord assistant focused on improving moods or offering support."},"
                 {role": "user", "content": prompt}
-                ],
+             ],
         )
         reply = response.choices[0].message.content
         await ctx.send(reply)

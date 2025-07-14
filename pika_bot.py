@@ -224,14 +224,14 @@ with open("creepy_facts.txt") as f:
 CHANNEL_IDS = [1388158646973632685,
               1388397019479146580
 ]
-
-@tasks.loop(hours=INTERVAL_HOURS)
-async def post_creepy_fact():
+@bot.event
+async def on_ready():
+    print(f'✅ Logged in as {bot.user} — ready to share creepy facts.')
+    # Start posting creepy facts in the specified channels
     for channel_id in CHANNEL_IDS:
         channel = bot.get_channel(channel_id)
         if channel:
-            fact = random.choice(facts)
-            await channel.send(fact)
+            await post_creepy_facts(channel)
 
 # Optional: Command to manually post one
 @bot.command(name="creepfact")

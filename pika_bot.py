@@ -450,15 +450,15 @@ async def wordhunt5(ctx):
     words = [c["clean"] for c in chosen]
     labels = [c["orig"] for c in chosen]
 
-    # 4. Build empty 5×5 grid
+        # 4. Build empty 5×5 grid
     size = 5
     grid = [["" for _ in range(size)] for __ in range(size)]
     directions = [(1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)]
 
-    # 5. Place each word (200 attempts max)
+    # 5. Place each word (1500 attempts max)
     for w in words:
         placed = False
-        for _ in range(200):
+        for _ in range(1500):
             dx, dy = random.choice(directions)
             xs = range(0, size) if dx == 0 else (range(0, size-len(w)+1) if dx>0 else range(len(w)-1, size))
             ys = range(0, size) if dy == 0 else (range(0, size-len(w)+1) if dy>0 else range(len(w)-1, size))

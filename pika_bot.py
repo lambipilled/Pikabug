@@ -50,7 +50,7 @@ async def prefixgame(ctx):
         return
 
     # Pick a random 3-letter prefix
-    prefixes = [word[:3] for word in WORDS if len(word) >= 5]
+        prefixes = [word[:3] for word in WORDS if len(word) > 5]
     current_prefix = random.choice(prefixes)
 
     await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
@@ -65,10 +65,10 @@ async def prefixgame(ctx):
 
     try:
         while True:
-            msg = await bot.wait_for("message", timeout=30.0, check=check)
+            msg = await bot.wait_for("message", timeout=10.0, check=check)
             word = msg.content.strip().lower()
             if word in WORDS:
-                if word not in submissions or len(word) > len(submissions[word]):
+                if word not in submissions or len(word) > 5 len(submissions[word]):
                     submissions[msg.author] = word
     except asyncio.TimeoutError:
         pass

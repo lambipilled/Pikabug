@@ -393,10 +393,11 @@ async def pikahelp_command(ctx):
 `!addiction` — Receive supportive messages for addiction struggles.  
 `!attention` — Receive messages to help with feelings of neglect or invisibility.  
 `!fuckoff` — A humorous response to annoying behavior. 
-`!startgame` — Start the word unscrambling game  
+`!unscramble` — Start the word unscrambling game  
 `!guess [word]` — Guess the word from the last scramble  
 `!hint` — Get a hint for the current word, there are two hint options.
 `!reveal` — Reveal the current word and end the round  
+`!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix.
 `!pikahelp` — Show this list of commands
 """
     await ctx.send(pikahelp_text)

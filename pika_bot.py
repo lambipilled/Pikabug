@@ -422,7 +422,7 @@ async def pikahelp_command(ctx):
 @bot.command(name="wordhunt5")
 async def wordhunt5(ctx):
     """
-    5×5 word-search of 5 random terms from your text file.
+    5×5 word-search of 2 random terms from your text file.
     """
     # 1. Load terms from your file
     try:
@@ -446,12 +446,12 @@ async def wordhunt5(ctx):
 
     # 3. Pick 5 random terms
     import random
-    chosen = random.sample(candidates, 5)
+    chosen = random.sample(candidates, 2)
     words = [c["clean"] for c in chosen]
     labels = [c["orig"] for c in chosen]
 
-        # 4. Build empty 5×5 grid
-    size = 5
+    # 4. Build empty 5×5 grid
+    size = 2
     grid = [["" for _ in range(size)] for __ in range(size)]
     directions = [(1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)]
 

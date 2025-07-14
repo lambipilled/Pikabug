@@ -493,8 +493,8 @@ async def wordhunt5(ctx):
     embed.add_field(name="Puzzle:", value=f"```\n{grid_text}\n```", inline=False)
     await ctx.send(embed=embed)
 
-@bot.command(name='guess')
-async def guess_word(ctx, *, word: str):
+@bot.command(name='add')
+async def add_word(ctx, *, word: str):
     # normalize and compare
     if word.lower() == solution_word:
         await ctx.send(f"✅ Correct! The word was **{solution_word}**.")

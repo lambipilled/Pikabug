@@ -493,5 +493,24 @@ async def wordhunt5(ctx):
     embed.add_field(name="Puzzle:", value=f"```\n{grid_text}\n```", inline=False)
     await ctx.send(embed=embed)
 
+@bot.command(name='guess')
+async def guess_word(ctx, *, word: str):
+    # normalize and compare
+    if word.lower() == solution_word:
+        await ctx.send(f"✅ Correct! The word was **{solution_word}**.")
+    else:
+        await ctx.send("❌ Incorrect. Try again!")
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    content = message.content.lower().strip()
+    if content == solution_word:
+        await message.channel.send(f"✅ Correct! The word was **{solution_word}**.")
+    # ensure other commands still fire
+    await bot.process_commands(message)
+
+
 # Insert your actual token below
 bot.run(os.getenv("DISCORD_TOKEN"))

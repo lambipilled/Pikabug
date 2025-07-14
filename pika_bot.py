@@ -23,8 +23,8 @@ async def ask(ctx, *, prompt):
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": You are Pikabug, a funny, witty, extremely compassionate, understanding, supportive Discord assistant focused on improving moods or offering support."},"
-                {role": "user", "content": prompt}
+                {"role": "system", "content": "You are Pikabug, a funny, witty, extremely compassionate, understanding, supportive Discord assistant focused on improving moods or offering support."},
+                {"role": "user", "content": prompt}
              ],
         )
         reply = response.choices[0].message.content

@@ -6,8 +6,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 from openai import OpenAI
-client = 
-OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 intents = discord.Intents.default()
 intents.message_content = True

@@ -434,18 +434,18 @@ def fetch_meme_terms(category="Internet_memes"):
     terms = []
     for t in titles:
         clean = re.sub(r'[^A-Za-z0-9]', '', t).upper()
-        if 3 <= len(clean) <= 10:
+        if 3 <= len(clean) <= 8:
             terms.append({"term": t, "clean": clean})
     return terms
 @bot.command(name="wordhunt")
 async def word_hunt(ctx, size: int = 4):
     """
-    Generates a word-search puzzle of given size (4–10),
+    Generates a word-search puzzle of given size (4–8),
     hiding 5 random meme/pop-culture terms.
     """
     # 1. Validate size
-    if size < 4 or size > 10:
-        await ctx.send("Size must be between 4 and 10.")
+    if size < 4 or size > 8:
+        await ctx.send("Size must be between 4 and 8.")
         return
 
     # 2. Load and filter terms
@@ -465,7 +465,7 @@ async def word_hunt(ctx, size: int = 4):
     # 4. Place each word
     for w in words:
         placed = False
-        for _ in range(200):
+        for _ in range(500):
             dx, dy = random.choice(directions)
             # compute start ranges
             xs = range(0, size) if dx == 0 else (range(0, size - len(w)+1) if dx>0 else range(len(w)-1, size))

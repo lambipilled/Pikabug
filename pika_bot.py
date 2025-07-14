@@ -31,6 +31,57 @@ async def ask(ctx, *, prompt):
     except Exception as e:
         await ctx.send(f"Error: {str(e)}")
 
+# Prefix word game logic
+
+# Load word list
+with open("words_alpha.txt", "r") as file:
+    WORDS = set(word.strip().lower() for word in file.readlines())
+
+# Store current prefix and submissions
+current_prefix = None
+submissions = {}
+
+@bot.command()
+async def prefixgame(ctx):
+    global current_prefix, submissions
+
+    if current_prefix:
+        await ctx.send("A game is already in progress!")
+        return
+
+    # Pick a random 3-letter prefix
+    prefixes = [word[:3] for word in WORDS if len(word) >= 5]
+    current_prefix = random.choice(prefixes)
+
+    await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
+    submissions = {}
+
+    def check(m):
+        return (
+            m.channel == ctx.channel
+            and m.content.lower().startswith(current_prefix)
+            and m.author != bot.user
+        )
+
+    try:
+        while True:
+            msg = await bot.wait_for("message", timeout=30.0, check=check)
+            word = msg.content.strip().lower()
+            if word in WORDS:
+                if word not in submissions or len(word) > len(submissions[word]):
+                    submissions[msg.author] = word
+    except asyncio.TimeoutError:
+        pass
+
+    if not submissions:
+        await ctx.send("⏰ Time's up! No valid entries were submitted.")
+    else:
+        winner = max(submissions.items(), key=lambda x: len(x[1]))
+        await ctx.send(f"🏆 **{winner[0].display_name}** wins with `{winner[1]}` ({len(winner[1])} letters)!")
+    
+    current_prefix = None
+    submissions = {}
+
 # Support bot logic 
 
 responses = {
@@ -321,18 +372,6 @@ with open("creepy_facts.txt") as f:
 CHANNEL_IDS = [1388158646973632685,
               1388397019479146580
 ]
-INTERVAL_MINUTES = 30  # Post every hour
-@tasks.loop(minutes=INTERVAL_MINUTES)
-async def post_creepy_fact_loop(channel_id):
-    for channel_id in CHANNEL_IDS:
-        channel = bot.get_channel(channel_id)
-        if channel:
-            fact = random.choice(facts)
-            await channel.send(f"🕷️ Creepy Fact: {fact}")
-@bot.event
-async def on_ready():
-    print(f'✅ Logged in as {bot.user} — ready to share creepy facts.')
-    post_creepy_fact_loop.start()  # Start the loop when bot is ready
 
 # Optional: Command to manually post one
 @bot.command(name="creepfact")

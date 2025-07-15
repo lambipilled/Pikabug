@@ -83,10 +83,9 @@ async def ask(ctx, *, prompt):
                         "- Always respond with thoughtful, introspective, and vulnerable answers, specifically in mental health discussion.\n"
                         "- When asked to choose between two or more options, respond ONLY with chosen options.\n"
                         "- Do not be wishy-washy; maintain a strong, confirmed opinion.\n"
-                    ),
                 },
+            ],
                 *conversation_history[user_key]
-            ]
         )
         reply = response.choices[0].message.content
 

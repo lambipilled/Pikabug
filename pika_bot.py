@@ -127,48 +127,62 @@ with open("words_alpha.txt", "r") as file:
 current_prefix = None
 submissions = {}
 
-@bot.command()
+@bot.command(name='prefixgame')
 async def prefixgame(ctx):
+    """
+    Start a prefix‐game round: bot posts a 3‐letter prefix and collects replies.
+    Usage: !prefixgame
+    """
     global current_prefix, submissions
 
-    if current_prefix:
-        await ctx.send("A game is already in progress!")
-        return
-
-    # Pick a random 3-letter prefix
-    prefixes = [word[:3] for word in WORDS if len(word) >= 5]
+    # 1. Pick & announce prefix
+    prefixes = [...]  # your list of three‐letter prefixes
     current_prefix = random.choice(prefixes)
-
-    await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
     submissions = {}
+    await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`!")
 
-    def check(m):
-        return (
-            m.channel == ctx.channel
-            and m.content.lower().startswith(current_prefix)
-            and m.author != bot.user
-        )
-
+    # 2. Collect replies
     try:
+        def check(m):
+            return (
+                m.channel == ctx.channel
+                and m.content.lower().startswith(current_prefix)
+                and len(m.content) > len(current_prefix)
+            )
         while True:
-            msg = await bot.wait_for("message", timeout=10.0, check=check)
-            word = msg.content.strip().lower()
-
-            if word in WORDS and len(word) >= 5:
-                if msg.author not in submissions or len(word) > len(submissions[msg.author]):
-                    submissions[msg.author] = word
-
+            guess = await bot.wait_for('message', timeout=10.0, check=check)
+            submissions[guess.author] = guess.content
     except asyncio.TimeoutError:
         pass
 
+    # 3. Determine winner
     if not submissions:
         await ctx.send("⏰ Time's up! No valid entries were submitted.")
     else:
-        winner = max(submissions.items(), key=lambda x: len(x[1]))
-        await ctx.send(f"🏆 **{winner[0].display_name}** wins with `{winner[1]}` ({len(winner[1])} letters)!")
-    
+        # pick longest submission
+        winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))
+        
+        # ─── AWARD POINTS HERE ───
+        guild_id = str(ctx.guild.id)
+        user_id  = str(winner.id)
+        record   = get_user_record(guild_id, user_id)
+
+        # increment totals
+        record['points']                += PREFIXGAME_POINTS
+        record['prefixgame_submissions'] += 1
+        save_pika_data()
+
+        # send result + stats
+        await ctx.send(
+            f"🥇 **{winner.display_name}** wins with **{word}** ({len(word)} letters)!\n"
+            f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
+            f"• Total Points: **{record['points']}**\n"
+            f"• Prefix‐game entries: **{record['prefixgame_submissions']}**"
+        )
+
+    # 4. Cleanup
     current_prefix = None
-    submissions = {}
+    submissions    = {}
 
 # Journaling prompt logic
 journal_prompts = [
@@ -179,7 +193,7 @@ journal_prompts = [
     "What instance immediately comes to mind when you remember a meaningful display of kindness?",
     "Who are some people in history you admire?",
     "Who was your first best friend? Tell me about them. Why did you get along so well?",
-    "Who was your first love? Tell me about them. Why did that stand out more than others?",
+    "Who was your first love? Tell me about them. Why did they stand out more than others?",
     "What was your first job and when did you get it? What do you wish it would've been?",
     "Describe the experience of your first kiss or first time.",
     "Describe the experience of your first time being drunk/high.",
@@ -490,11 +504,30 @@ async def guess(ctx, user_guess: str):
         await ctx.send("❗ No game running. Start one with `!unscramble`.")
         return
 
-    if user_guess.lower() == current_word:
-        await ctx.send("✅ Correct! Well done.")
-        current_word = None  # Reset game
+ # 1. Check answer
+    if guess_word.lower() == current_word.lower():
+
+        # 2. Award points
+        guild_id = str(ctx.guild.id)
+        user_id  = str(ctx.author.id)
+        record   = get_user_record(guild_id, user_id)
+        record['points']               += UNSCRAMBLE_POINTS
+        record['unscramble_submissions'] += 1
+        save_pika_data()
+
+        # 3. Send feedback & updated stats
+        await ctx.send(
+            f"✅ Correct! You earned **{UNSCRAMBLE_POINTS}** PikaPoints.\n"
+            f"• **Total Points:** {record['points']}\n"
+            f"• **Unscramble Submissions:** {record['unscramble_submissions']}"
+        )
+
+        # 4. Reset or pick a new word
+        current_word = None
+
     else:
-        await ctx.send("❌ Incorrect. Try again!")
+        await ctx.send("❌ Nope, try again.")
+
 @bot.command(name='hint')
 async def hint(ctx):
     global current_word, revealed_indexes, hint_count

@@ -1,14 +1,99 @@
 import discord
 import random
 import asyncio
+import json 
 import os
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from openai import OpenAI
 
+# ─── PikaPoints Data ─────────────────────────────────────────────────
+POINTS_FILE = "pika_points.json"
+
+# Load or initialize data structure: 
+# { "<guild_id>": { "<user_id>": { "points": int, "journal_submissions": int, 
+#                                   "prefixgame_submissions": int, "unscramble_submissions": int } } }
+if os.path.exists(POINTS_FILE):
+    with open(POINTS_FILE, "r") as f:
+        pika_data = json.load(f)
+else:
+    pika_data = {}
+
+# PikaPoints reward values
+JOURNAL_POINTS = 15
+PREFIXGAME_POINTS = 5
+UNSCRAMBLE_POINTS = 5
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def save_pika_data():
+    """Persist the PikaPoints JSON to disk."""
+    with open(POINTS_FILE, "w") as f:
+        json.dump(pika_data, f, indent=2)
+
+def get_user_record(guild_id: str, user_id: str):
+    """Ensure a record exists and return it."""
+    guild = pika_data.setdefault(guild_id, {})
+    return guild.setdefault(user_id, {
+        "points": 0,
+        "journal_submissions": 0,
+        "prefixgame_submissions": 0,
+        "unscramble_submissions": 0
+    })
+
+@bot.command(name='pikapoints')
+async def pikapoints(ctx):
+    """
+    Show the caller’s own PikaPoints and submission counts.
+    Usage: !pikapoints
+    """
+    # 1. Identify guild & user
+    guild_id = str(ctx.guild.id)
+    user_id = str(ctx.author.id)
+
+    # 2. Fetch or initialize their record
+    record = get_user_record(guild_id, user_id)
+
+    # 3. Build and send the stats message
+    await ctx.send(
+        f"**📊 {ctx.author.display_name}’s PikaPoints Stats**\n"
+        f"• **Total Points:** {record['points']}\n"
+        f"• **Journal Entries:** {record['journal_submissions']}\n"
+        f"• **Prefix-game Submissions:** {record['prefixgame_submissions']}\n"
+        f"• **Unscramble Submissions:** {record['unscramble_submissions']}"
+    )
+
+@bot.command(name='pikarank')
+async def pikarank(ctx):
+    """
+    Show the server-wide PikaPoints leaderboard.
+    Usage: !pikarank
+    """
+    guild_id = str(ctx.guild.id)
+    # 1. Get all user records for this guild
+    guild_records = pika_data.get(guild_id, {})
+
+    # 2. Build a sorted list of (user_id, points), descending
+    ranking = sorted(
+        guild_records.items(),
+        key=lambda item: item[1].get('points', 0),
+        reverse=True
+    )
+
+    # 3. Format the top 10 (or fewer) entries
+    if not ranking:
+        return await ctx.send("No PikaPoints data found for this server.")
+
+    lines = []
+    for i, (user_id, data) in enumerate(ranking[:10], start=1):
+        member = ctx.guild.get_member(int(user_id))
+        name = member.display_name if member else f"<@{user_id}>"
+        pts = data.get('points', 0)
+        lines.append(f"**{i}. {name}** — {pts} points")
+
+    leaderboard = "🏆 **PikaPoints Leaderboard** 🏆\n" + "\n".join(lines)
+    await ctx.send(leaderboard)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -84,6 +169,65 @@ async def prefixgame(ctx):
     
     current_prefix = None
     submissions = {}
+
+# Journaling prompt logic
+journal_prompts = {
+    "What were your childhood career dreams/goals? How do they compare to what you want to do now?",
+    "Which year comes to mind when you think about the best nostalgia? Why did that year carry the best memories?",
+    "Describe your childhood in one word, or a single phrase. If this inspires you to talk more about it, go ahead.",
+    "What posters did you have on your wall growing up or want to have?",
+    "What instance immediately comes to mind when you remember a meaningful display of kindness?",
+    "Who are some people in history you admire?",
+    "Who was your first best friend? Tell me about them. Why did you get along so well?",
+    "Who was your first love? Tell me about them. Why did that stand out more than others?",
+    "What was your first job and when did you get it? What do you wish it would've been?",
+    "Describe the experience of your first kiss or first time.",
+    "Describe the experience of your first time being drunk/high.",
+    "Have you ever gotten in trouble with the law? If you were to, what would it most likely be for?",
+    "What was the age you actually became an adult, if you feel you have.",
+    "Who or what has had the greatest impact on your life, negatively or positively?",
+    "What's one of the hardest things you've ever had to do? Do you regret it or did it need to be done?",
+    "If I could do it all over again, I would change...",
+}
+
+last_journal_prompt = None  
+
+@bot.command(name='journal')
+async def journal(ctx):
+    """
+    Send a random journaling prompt, never repeating the previous one.
+    Usage: !journal
+    """
+    global last_journal_prompt
+
+    # 1. Build a working copy and remove the last prompt if present
+    choices = journal_prompts.copy()
+    if last_journal_prompt in choices:
+        choices.remove(last_journal_prompt)
+
+    # 2. Pick a new prompt
+    prompt = random.choice(choices)
+
+    # 3. Remember it for next time
+    last_journal_prompt = prompt
+
+    # 4. Send it
+    await ctx.send(f"📝 **Journaling prompt:** {prompt}")
+
+# ─── Award points ───────────────────────────────────────────
+    guild_id = str(ctx.guild.id)
+    user_id  = str(ctx.author.id)
+    record = get_user_record(guild_id, user_id)
+    record["points"] += JOURNAL_POINTS
+    record["journal_submissions"] += 1
+    save_pika_data()
+
+    await ctx.send(
+        f"📝 Journaling prompt: **{prompt}**\n"
+        f"✨ You earned **{JOURNAL_POINTS}** PikaPoints! "
+        f"Total: **{record['points']}** pts, "
+        f"Journal entries: **{record['journal_submissions']}**."
+    )
 
 # Support bot logic 
 

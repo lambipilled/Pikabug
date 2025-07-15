@@ -136,7 +136,8 @@ async def prefixgame(ctx):
     """
 
     # 1. Pick & announce prefix
-    prefixes = list({w[:3] for w in WORDS})
+
+    prefixes = list({w[:3] for w in WORDS if len(w) >=3})
     current_prefix = random.choice(prefixes)
     submissions = {}
     await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`!")

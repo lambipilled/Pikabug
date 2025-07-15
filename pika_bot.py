@@ -174,7 +174,7 @@ async def prefixgame(ctx):
            submissions[guess.author] = guess.content
      except asyncio.TimeoutError:
        await ctx.send("⏰ Time's up! No valid entries were submitted.")
-   else:
+     else:
        # pick longest submission
        winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))
         

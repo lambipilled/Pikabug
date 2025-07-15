@@ -161,22 +161,27 @@ async def prefixgame(ctx):
     await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
 
 
-    # (the rest of your existing reply-collection & scoring logic)
-    try:
-        def check(m):
-            return (
-                m.channel == ctx.channel
-                and m.content.lower().startswith(current_prefix)
-                and len(m.content) > len(current_prefix)
-            )
+   # 2. Collect replies
+   try:
+       def check(m):
+           return (
+               m.channel == ctx.channel
+               and m.content.lower().startswith(current_prefix)
+               and len(m.content) > len(current_prefix)
+           )
+       while True:
+           guess = await bot.wait_for('message', timeout=10.0, check=check)
+           submissions[guess.author] = guess.content
+   except asyncio.TimeoutError:
+       pass
 
-        # … your while/timeout code here …
-    except asyncio.TimeoutError:
-        await ctx.send("⏰ Time's up! …")
 
-    else:
-        # pick longest submission
-        winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))
+   # 3. Determine winner
+   if not submissions:
+       await ctx.send("⏰ Time's up! No valid entries were submitted.")
+   else:
+       # pick longest submission
+       winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))
         
         # ─── AWARD POINTS HERE ───
         guild_id = str(ctx.guild.id)

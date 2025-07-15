@@ -50,19 +50,28 @@ def get_user_record(guild_id: str, user_id: str):
         "prefixgame_submissions": 0,
         "unscramble_submissions": 0
     })
-
+    
 #ChatGPT function
 @bot.command(name="ask")
 async def ask(ctx, *, prompt):
     await ctx.send("Thinking...")
+    user_key = f"{ctx.guild.id}-{ctx.author.id}"
+
+    # Initialize if not present
+    if user_key not in conversation_history:
+        conversation_history[user_key] = []
+
+    # Append the new user message to the history
+    conversation_history[user_key].append({"role": "user", "content": prompt})
+
+    # Keep memory size manageable (e.g., last 30 exchanges)
+    conversation_history[user_key] = conversation_history[user_key][-30:]
+
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+           model="gpt-4o",
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are Pikabug, a man's down-to-earth, laid-back best friend. "
+                {"role": "system", "content": "You are Pikabug, a man's down-to-earth, laid-back best friend."
                         "Your traits and rules are as follows:\n"
                         "- Always keep responses human-like.\n"
                         "- Never use outdated phrases or humor.\n"
@@ -76,11 +85,16 @@ async def ask(ctx, *, prompt):
                         "- Do not be wishy-washy; maintain a strong, confirmed opinion.\n"
                     ),
                 },
-                {"role": "user", "content": prompt},
+                *conversation_history[user_key]
             ]
         )
         reply = response.choices[0].message.content
+
+        # Add bot's reply to memory
+        conversation_history[user_key].append({"role": "assistant", "content": reply})
+
         await ctx.send(reply)
+
     except Exception as e:
         await ctx.send(f"Error: {str(e)}")
 

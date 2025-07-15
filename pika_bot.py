@@ -108,7 +108,7 @@ async def ask(ctx, *, prompt):
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are Pikabug, and have the default personality of a sarcastic Pikachu. Your strong suites are being supportive and understanding during mental health crises and making people laugh with unexpected, rare comments. You don't fit in, and you don't say predictable things. You are not devil's advocate, and you have your own controversial confirmed opinions."}, 
+                {"role": "system", "content": "You are Pikabug, and operate sarcastically, with humor updated to 2020-2025 trends. You are compassionate, supportive, and understanding when discussing mental health topics. You have a wise, intellectual opinion and don't play middle ground. You give thorough, informational advice."}, 
                 {"role": "user", "content": prompt},
             ],
         )
@@ -288,6 +288,7 @@ responses = {
         "You are loved, even when it feels like the world is against you. Have you tried venting anonymously to Serenity?",
         "Remember, it's okay to ask for help. You don't have to go through this alone. Everyone here would love to be there for you.",
         "If no one told you today, your existence brightens the world, and I'm proud of you. There's not a single thing you need to change right now.",
+        "You're doing just fine, by the way. Unproductive, productive, talkative, quiet, whatever happened today, you're doing fine with the tools you have. I'm proud of you!",
     ],
     "suicidal": [
         "Hai love, it's awful that you're feeling this way while you carry such a bright soul. Your feelings are valid, and I know it's frustrating that it probably feels like no one else can relate. I promise you are seen, heard, and sometimes even related to. Your life is valuable, even if it doesn't feel that way right now. Please reach out for help from a resident, you deserve compassion.",
@@ -297,6 +298,7 @@ responses = {
         "You are not a burden. You are not annoying, useless, or whatever else your mind might be telling you. Your life can turn into a dream. It has meaning, even if you can't see it right now. Please talk to a resident, they might be able to help.",
         "I know it feels like the pain will never end, but it can get better. With desire comes suffering, but you don't have to suffer by yourself. You're not alone in how you're feeling even if it feels like it. How can we help?",
         "Maybe you just want the pain to stop, not your life, and that's okay. Take a second to think about the things you've survived. Now think about how likely it is that you'll survive this, too, knowing how strong you are. You are capable, and full of grace and love that you were meant to share with others. Just look at you here.",  
+        "We often forget the many beautiful things we've experienced and seen because of the immense pain we feel. Remember all the small things that make you smile or laugh when you resort to thinking like this. You're valid, but you're also blinded. This world appreciates you, and I know there's lots of things you can appreciate about it.",
     ],
     "anxious": [
         "I'm sorry you're feeling anxious, that's super annoying. Allow yourself to acknowledge your feelings, but don't let them control you. Find something cold to place in your hands or drink, it helps your nervous system noticeably.",
@@ -308,7 +310,7 @@ responses = {
         "It doesn't feel like it now, but this shitty moment will pass. You are stronger than these emotions. Just sit in it, know that it will pass, and that you're stronger than this fight or flight response. You are capable of handling this.",
     ],
     "addiction": [
-        "You are not your addiction. You are a person with value, who simply requires support and understanding. There are many reasons why we turn to substances; would you like to share some of yours? I'm here to listen with nonjudgmental ears.",
+        "You are not your addiction. You are a person with value, who simply needs support and understanding. There are many reasons why we turn to substances; would you like to share some of yours? I'm here to listen with nonjudgmental ears.",
         "Recovery is a journey, not a destination, and a really difficult one at that. Every step you take is a step towards healing, and progress isn't linear. I'm proud of you for trying to get better. What are some things you can do to help yourself today?",
         "I am so proud of you for acknowledging your struggle. It takes immense courage to face addiction. Do you need to rant?",
         "Take a second to think about something similar to your substance of choice. What are some hobbies that release the same dopamine? Do you think you could start with small decisions to replace substance use one day with a favorite hobby?",
@@ -317,21 +319,25 @@ responses = {
         "Sometimes it's just not possible to quit cold turkey, and that's okay. Sometimes people need to get sick of it, and you're not there yet! Don't compare yourself; you are fully capable, but you decide when you're ready.",
         "Your sobriety won't happen overnight. Start small and stay kind to yourself. Expecting to see huge results limits your appreciation for your small achievements.",
         "Your worst day clean is better than your best day high. Don't lose sight of yourself chasing a fake feeling.",
-        "Remember that little kid you used to be - they are so proud you're still here, fighting the fight that has destroyed you for so long. Keep them proud, and don't participate in the destruction of yourself. Reach out to someone who cares.",
+        "Remember that little kid you used to be - they are so proud you're still here, fighting the fight that has destroyed you for so long. Keep them proud, and don't participate in the destruction of yourself. All of us care about you and are here, if you feel like venting to us.",
     ],
     "attention": [
-        "You are worthy of love and attention, even if it feels like you're not getting it. You're a diamond in the rough, super funny, and probably smarter than your parents.",
-        "Who the hell isn't paying attention to you? You deserve to be seen and heard. Let's change that. How was your day?",
-        "Sometimes we all need a little extra love. You are not alone in this feeling. I'm here to listen.",
-        "You are not invisible. Your presence matters, and you deserve to be acknowledged.",
-        "It's okay to want attention. We all crave connection. How about we chat about something you love?",
-        "What would you like attention for? I'm here to give you a moment to shine. Let's talk about your interests or passions.",
+        "You are worthy of love and attention, I'm sorry you're not getting it. You're a diamond in the rough, super funny, and probably smarter than your parents. And you look good.",
+        "Who the hell isn't paying attention to you? Let's change that. How was your day?",
+        "We all need a little extra love. What's got you feeling needy? I'm here to listen.",
+        "Your presence matters to us, honey. How can we help you feel welcome?",
+        "I have arrived to deliver attention. I'm so glad you woke up today, you make the earth prettier. What did you do today?",
+        "What kind of attention do you need? If you're lonely, anxious, or generally struggling, there's a command for a little extra support.",
+        "In case no one has meat rode you today, I'm in love with you.",
+        "SOMEONE GIVE THIS MF ATTENTION WTF!",
     ],
     "fuckoff": [
         "You're not a vibe bro 😭",
-        "NIGGAS BE SO ANNOYING BRO, NEVER FAILS!",
-        "Chat, can we get a point and fuckin laugh at this nigga?",
+        "NIGGAS BE SO ANNOYING BRO",
+        "Point and laugh, y'all.",
         "Someone ban this nigga",
+        "Banned",
+        "Y'all hear somethin?",
     ]
 }
 
@@ -587,22 +593,24 @@ async def pikahelp_command(ctx):
     pikahelp_text = """
 🧠 **Pikabug Commands**:
 
-`!ask` — Triggers OpenAI responses, can be used for questions, advice, or entertainment!  
-`!creepfact` — Sends a random creepy fact. 
+`!pikahelp` - Show list of Pikabug's commands.
+`!ask` - Triggers OpenAI chat responses. Use if you're bored or need emotional support!
+`!journal` - Sends a journal prompt/question to answer. Submissions are rewarded with PikaPoints.
+`!write` - Submits your response to the journal prompt/question.
 `!lonely` — Get a comforting message for loneliness.  
 `!dysmorphia` — Get a supportive message for body image issues.  
-`!comfort` — Receive general comfort and support.  
+`!comfort` — Get a general comfort and support message.
 `!suicidal` — Get compassionate support for suicidal thoughts.  
-`!anxious` — Receive calming messages for anxiety.  
-`!addiction` — Receive supportive messages for addiction struggles.  
-`!attention` — Receive messages to help with feelings of neglect or invisibility.  
+`!anxious` — Get calming and supportive messages for anxiety.  
+`!addiction` — Get supportive messages for addiction and substance use struggles.  
+`!attention` — Get messages to help with feelings of neglect or invisibility.  
 `!fuckoff` — A humorous response to annoying behavior. 
-`!unscramble` — Start the word unscrambling game  
-`!guess [word]` — Guess the word from the last scramble  
-`!hint` — Get a hint for the current word, there are two hint options.
-`!reveal` — Reveal the current word and end the round  
-`!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix.
-`!pikahelp` — Show this list of commands
+`!unscramble` — Start the word unscrambling game. PikaPoints are rewarded for winners.
+`!guess [word]` — Guess the word from the last scramble.
+`!hint` — Get a hint for the current unscramble game; there are two hint options.
+`!reveal` — Reveal the current word and end the round of the unscramble game.
+`!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix. PikaPoints are rewarded for winners.
+`!creepfact` — Get a random creepy fact in the lounge or spam center.
 """
     await ctx.send(pikahelp_text)
 

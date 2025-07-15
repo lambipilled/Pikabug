@@ -129,14 +129,14 @@ submissions = {}
 
 @bot.command(name='prefixgame')
 async def prefixgame(ctx):
+    global current_prefix, submissions 
     """
     Start a prefix‐game round: bot posts a 3‐letter prefix and collects replies.
     Usage: !prefixgame
     """
-    global current_prefix, submissions
 
     # 1. Pick & announce prefix
-    prefixes = [...]  # your list of three‐letter prefixes
+    prefixes = list({w[:3] for w in WORDS})
     current_prefix = random.choice(prefixes)
     submissions = {}
     await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`!")

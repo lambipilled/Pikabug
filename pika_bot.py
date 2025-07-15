@@ -171,7 +171,7 @@ async def prefixgame(ctx):
     submissions = {}
 
 # Journaling prompt logic
-journal_prompts = {
+journal_prompts = [
     "What were your childhood career dreams/goals? How do they compare to what you want to do now?",
     "Which year comes to mind when you think about the best nostalgia? Why did that year carry the best memories?",
     "Describe your childhood in one word, or a single phrase. If this inspires you to talk more about it, go ahead.",
@@ -188,45 +188,57 @@ journal_prompts = {
     "Who or what has had the greatest impact on your life, negatively or positively?",
     "What's one of the hardest things you've ever had to do? Do you regret it or did it need to be done?",
     "If I could do it all over again, I would change...",
-}
+]
 
 last_journal_prompt = None  
 
+# 1. Simplified journal prompt command
 @bot.command(name='journal')
 async def journal(ctx):
     """
-    Send a random journaling prompt, never repeating the previous one.
+    Send a random journaling prompt.
     Usage: !journal
     """
     global last_journal_prompt
 
-    # 1. Build a working copy and remove the last prompt if present
+    # Build choices and avoid repeating
     choices = journal_prompts.copy()
     if last_journal_prompt in choices:
         choices.remove(last_journal_prompt)
+    if not choices:
+        choices = journal_prompts.copy()
 
-    # 2. Pick a new prompt
+    # Pick & remember
     prompt = random.choice(choices)
-
-    # 3. Remember it for next time
     last_journal_prompt = prompt
 
-    # 4. Send it
+    # Only send the prompt here
     await ctx.send(f"📝 **Journaling prompt:** {prompt}")
 
-# ─── Award points ───────────────────────────────────────────
+
+# 2. New submission command
+@bot.command(name='write')
+async def write(ctx, *, entry: str):
+    """
+    Submit your journal entry and earn PikaPoints.
+    Usage: !write Here is my response...
+    """
     guild_id = str(ctx.guild.id)
     user_id  = str(ctx.author.id)
+
+    # Fetch or init the user’s record
     record = get_user_record(guild_id, user_id)
-    record["points"] += JOURNAL_POINTS
-    record["journal_submissions"] += 1
+
+    # Award points
+    record['points']              += JOURNAL_POINTS
+    record['journal_submissions'] += 1
     save_pika_data()
 
+    # Acknowledge receipt & show updated stats
     await ctx.send(
-        f"📝 Journaling prompt: **{prompt}**\n"
-        f"✨ You earned **{JOURNAL_POINTS}** PikaPoints! "
-        f"Total: **{record['points']}** pts, "
-        f"Journal entries: **{record['journal_submissions']}**."
+        f"✅ Entry received! You earned **{JOURNAL_POINTS}** PikaPoints!\n"
+        f"• **Total Points:** {record['points']}\n"
+        f"• **Journal Entries:** {record['journal_submissions']}"
     )
 
 # Support bot logic 

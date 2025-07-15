@@ -152,16 +152,16 @@ async def prefixgame(ctx):
     if not common_prefixes:
         return await ctx.send("⚠️ No valid prefixes available.")
 
-    # 5.b. Pick one, weighted by pool size
-    weights = [len(prefix_map[p]) for p in common_prefixes]
-    current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
-    submissions = {}
+        # 5.b. Pick one, weighted by pool size
+        weights = [len(prefix_map[p]) for p in common_prefixes]
+        current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
+        submissions = {}
 
-    # 5.c. Announce
+     # 5.c. Announce
     await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
 
 
-   # 2. Collect replies
+        # 2. Collect replies
    try:
        def check(m):
            return (

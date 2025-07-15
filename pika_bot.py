@@ -125,6 +125,20 @@ async def ask(ctx, *, prompt):
 with open("words_alpha.txt", "r") as f:
     WORDS = set(line.strip().lower() for line in f)
 
+# 3. Build prefix→words map
+prefix_map: Dict[str, List[str]] = defaultdict(list)
+for w in WORDS:
+   if len(w) >= 3:
+       p = w[:3]
+       prefix_map[p].append(w)
+
+# 4. Filter to “common” prefixes
+MIN_WORDS_PER_PREFIX = 5
+common_prefixes = [
+   p for p, lst in prefix_map.items()
+   if len(lst) >= MIN_WORDS_PER_PREFIX
+]
+
 @bot.command(name="prefixgame")
 async def prefixgame(ctx):
     global current_prefix, submissions

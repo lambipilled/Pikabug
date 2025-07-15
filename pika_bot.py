@@ -125,80 +125,64 @@ async def ask(ctx, *, prompt):
 with open("words_alpha.txt", "r") as f:
     WORDS = set(line.strip().lower() for line in f)
 
-# 2. Prepare storage for the current round
-current_prefix = None
-submissions = {}
-
-# 3. Build prefix→words map
-prefix_map: Dict[str, List[str]] = defaultdict(list)
-for w in WORDS:
-    if len(w) >= 3:
-        p = w[:3]
-        prefix_map[p].append(w)
-
-# 4. Filter to “common” prefixes
-MIN_WORDS_PER_PREFIX = 5
-common_prefixes = [
-    p for p, lst in prefix_map.items()
-    if len(lst) >= MIN_WORDS_PER_PREFIX
-]
-
-# 5. The command
 @bot.command(name="prefixgame")
 async def prefixgame(ctx):
     global current_prefix, submissions
 
     # 5.a. Sanity check
     if not common_prefixes:
-     return await ctx.send("⚠️ No valid prefixes available.")
+        await ctx.send("⚠️ No valid prefixes available.")
+        return
 
-        # 5.b. Pick one, weighted by pool size
-     weights = [len(prefix_map[p]) for p in common_prefixes]
-     current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
-     submissions = {}
+    # 5.b. Pick a prefix, weighted by how many words it supports
+    weights = [len(prefix_map[p]) for p in common_prefixes]
+    current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
+    submissions = {}
 
-     # 5.c. Announce
-     await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
+    # 5.c. Announce the round
+    await ctx.send(
+        f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`"
+    )
 
+    # 5.d. Collect replies
+    try:
+        def check(m):
+            return (
+                m.channel == ctx.channel
+                and m.content.lower().startswith(current_prefix)
+                and len(m.content) > len(current_prefix)
+            )
 
-     # 2. Collect replies
-     try:
-       def check(m):
-           return (
-               m.channel == ctx.channel
-               and m.content.lower().startswith(current_prefix)
-               and len(m.content) > len(current_prefix)
-           )
-       while True:
-           guess = await bot.wait_for('message', timeout=10.0, check=check)
-           submissions[guess.author] = guess.content
-     except asyncio.TimeoutError:
-       await ctx.send("⏰ Time's up! No valid entries were submitted.")
-     else:
-       # pick longest submission
-       winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))
-        
-        # ─── AWARD POINTS HERE ───
+        while True:
+            guess = await bot.wait_for("message", timeout=10.0, check=check)
+            submissions[guess.author] = guess.content
+
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Time's up! No valid entries were submitted.")
+        return
+
+    else:
+        # 5.e. Determine the winner and award points
+        winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))
         guild_id = str(ctx.guild.id)
-        user_id  = str(winner.id)
-        record   = get_user_record(guild_id, user_id)
+        user_id = str(winner.id)
+        record = get_user_record(guild_id, user_id)
 
-        # increment totals
-        record['points']                += PREFIXGAME_POINTS
-        record['prefixgame_submissions'] += 1
+        record["points"] += PREFIXGAME_POINTS
+        record["prefixgame_submissions"] += 1
         save_pika_data()
 
-        # send result + stats
+        # 5.f. Send results
         await ctx.send(
-            f"🥇 **{winner.display_name}** wins with **{word}** ({len(word)} letters)!\n"
+            f"🏆 **{winner.display_name}** wins with **{word}** ({len(word)} letters)!\n"
             f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
             f"• Total Points: **{record['points']}**\n"
-            f"• Prefix‐game entries: **{record['prefixgame_submissions']}**"
+            f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
         )
 
-    # 4. Cleanup
+    # 5.g. Cleanup
     current_prefix = None
-    submissions    = {}
+    submissions = {}
 
 # Journaling prompt logic
 journal_prompts = [

@@ -128,15 +128,15 @@ with open("words_alpha.txt", "r") as f:
 # 3. Build prefix→words map
 prefix_map: Dict[str, List[str]] = defaultdict(list)
 for w in WORDS:
-   if len(w) >= 3:
-       p = w[:3]
-       prefix_map[p].append(w)
+    if len(w) >= 3:
+        p = w[:3]
+        prefix_map[p].append(w)
 
 # 4. Filter to “common” prefixes
 MIN_WORDS_PER_PREFIX = 5
 common_prefixes = [
-   p for p, lst in prefix_map.items()
-   if len(lst) >= MIN_WORDS_PER_PREFIX
+    p for p, lst in prefix_map.items()
+    if len(lst) >= MIN_WORDS_PER_PREFIX
 ]
 
 @bot.command(name="prefixgame")
@@ -155,40 +155,41 @@ async def prefixgame(ctx):
 
     # 5.d. Collect replies
     def check(m):
-    return (
-        m.channel == ctx.channel
-        and not m.author.bot
-        and m.content.lower().startswith(current_prefix.lower())
-        and len(m.content) > len(current_prefix)
-            )
+        return (
+            m.channel == ctx.channel
+            and not m.author.bot
+            and m.content.lower().startswith(current_prefix.lower())
+            and len(m.content) > len(current_prefix)
+        )
 
     while True:
-    try:
-        guess = await bot.wait_for("message", timeout=10.0, check=check)
-        submissions[guess.author] = guess.content
-    except asyncio.TimeoutError:
-        break  # <-- break, don't return!
+        try:
+            guess = await bot.wait_for("message", timeout=10.0, check=check)
+            submissions[guess.author] = guess.content
+        except asyncio.TimeoutError:
+            break  # <-- break, don't return!
 
     if not submissions:
-    await ctx.send("⏰ Time's up! No valid entries were submitted.")
-    return
-        # 5.e. Determine the winner and award points
-        winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))
-        guild_id = str(ctx.guild.id)
-        user_id = str(winner.id)
-        record = get_user_record(guild_id, user_id)
+        await ctx.send("⏰ Time's up! No valid entries were submitted.")
+        return
 
-        record["points"] += PREFIXGAME_POINTS
-        record["prefixgame_submissions"] += 1
-        save_pika_data()
+    # 5.e. Determine the winner and award points
+    winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))
+    guild_id = str(ctx.guild.id)
+    user_id = str(winner.id)
+    record = get_user_record(guild_id, user_id)
 
-        # 5.f. Send results
-        await ctx.send(
-            f"🏆 **{winner.display_name}** wins with **{word}** ({len(word)} letters)!\n"
-            f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
-            f"• Total Points: **{record['points']}**\n"
-            f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
-        )
+    record["points"] += PREFIXGAME_POINTS
+    record["prefixgame_submissions"] += 1
+    save_pika_data()
+
+    # 5.f. Send results
+    await ctx.send(
+        f"🏆 **{winner.display_name}** wins with **{word}** ({len(word)} letters)!\n"
+        f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
+        f"• Total Points: **{record['points']}**\n"
+        f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
+    )
 
 # Journaling prompt logic
 journal_prompts = [

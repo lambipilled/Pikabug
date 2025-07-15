@@ -143,11 +143,6 @@ common_prefixes = [
 async def prefixgame(ctx):
     global current_prefix, submissions
 
-    # 5.a. Sanity check
-    if not common_prefixes:
-        await ctx.send("⚠️ No valid prefixes available.")
-        return
-
     # 5.b. Pick a prefix, weighted by how many words it supports
     weights = [len(prefix_map[p]) for p in common_prefixes]
     current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
@@ -160,7 +155,7 @@ async def prefixgame(ctx):
 
     # 5.d. Collect replies
     try:
-def check(m):
+ def check(m):
     return (
         m.channel == ctx.channel
         and not m.author.bot
@@ -196,10 +191,6 @@ if not submissions:
             f"• Total Points: **{record['points']}**\n"
             f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
         )
-
-    # 5.g. Cleanup
-    current_prefix = None
-    submissions = {}
 
 # Journaling prompt logic
 journal_prompts = [

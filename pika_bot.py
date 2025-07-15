@@ -506,7 +506,7 @@ async def guess(ctx, user_guess: str):
         return
 
  # 1. Check answer
-    if guess_word.lower() == current_word.lower():
+    if user_guess.lower() == current_word.lower():
 
         # 2. Award points
         guild_id = str(ctx.guild.id)

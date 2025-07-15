@@ -49,59 +49,6 @@ def get_user_record(guild_id: str, user_id: str):
         "unscramble_submissions": 0
     })
 
-@bot.command(name='pikapoints')
-async def pikapoints(ctx):
-    """
-    Show the caller’s own PikaPoints and submission counts.
-    Usage: !pikapoints
-    """
-    # 1. Identify guild & user
-    guild_id = str(ctx.guild.id)
-    user_id = str(ctx.author.id)
-
-    # 2. Fetch or initialize their record
-    record = get_user_record(guild_id, user_id)
-
-    # 3. Build and send the stats message
-    await ctx.send(
-        f"**📊 {ctx.author.display_name}’s PikaPoints Stats**\n"
-        f"• **Total Points:** {record['points']}\n"
-        f"• **Journal Entries:** {record['journal_submissions']}\n"
-        f"• **Prefix-game Submissions:** {record['prefixgame_submissions']}\n"
-        f"• **Unscramble Submissions:** {record['unscramble_submissions']}"
-    )
-
-@bot.command(name='pikarank')
-async def pikarank(ctx):
-    """
-    Show the server-wide PikaPoints leaderboard.
-    Usage: !pikarank
-    """
-    guild_id = str(ctx.guild.id)
-    # 1. Get all user records for this guild
-    guild_records = pika_data.get(guild_id, {})
-
-    # 2. Build a sorted list of (user_id, points), descending
-    ranking = sorted(
-        guild_records.items(),
-        key=lambda item: item[1].get('points', 0),
-        reverse=True
-    )
-
-    # 3. Format the top 10 (or fewer) entries
-    if not ranking:
-        return await ctx.send("No PikaPoints data found for this server.")
-
-    lines = []
-    for i, (user_id, data) in enumerate(ranking[:10], start=1):
-        member = ctx.guild.get_member(int(user_id))
-        name = member.display_name if member else f"<@{user_id}>"
-        pts = data.get('points', 0)
-        lines.append(f"**{i}. {name}** — {pts} points")
-
-    leaderboard = "🏆 **PikaPoints Leaderboard** 🏆\n" + "\n".join(lines)
-    await ctx.send(leaderboard)
-
 #ChatGPT function
 @bot.command(name="ask")
 async def ask(ctx, *, prompt):
@@ -118,10 +65,12 @@ async def ask(ctx, *, prompt):
                         "- Never use robotic or generic language when talking about emotions, and be detailed in reasoning for advice.\n"
                         "- Never try too hard to be relatable, and don't use outdated humor.\n"
                         "- If a user is trying to share emotions or ask for advice, always be empathetic, compassionate, and thoughtful.\n"
-                        "- Your tone is generally sarcastic, but supportive and empathetic when discussing emotions.\n"
-                        "- Your general personality and tone is witty, but not too playful or dramatic.\n"
-                        "- Use concise, blunt, and sarcastic answers in general discussion, and use caring, thoughtful, and lengthy answers discussion emotions.\n"
-                        "- Never play middle ground or devil's advocate, and always support the user.\n"
+                        "- Your tone is generally sarcastic.\n"
+                        "- Your general personality light-hearted, but not cringe or dramatic.\n"
+                        "- Don't use cringe Gen Z language or mimic millennials.\n"
+                        "- Use concise, blunt, and sarcastic answers in general discusion.\n"
+                        "- Use thoughtful, introspective, caring answers in serious, mental health discussion.\n"
+                        "- Never play middle ground or devil's advocate, and always support the side of the user.\n"
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -177,7 +126,7 @@ async def prefixgame(ctx):
 
     while True:
         try:
-            guess = await bot.wait_for("message", timeout=10.0, check=check)
+            guess = await bot.wait_for("message", timeout=12.0, check=check)
             submissions[guess.author] = guess.content
         except asyncio.TimeoutError:
             break  # <-- break, don't return!

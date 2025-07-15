@@ -7,6 +7,11 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from openai import OpenAI
 
+intents = discord.Intents.default()
+intents.message_content = True
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
 # ─── PikaPoints Data ─────────────────────────────────────────────────
 POINTS_FILE = "pika_points.json"
 
@@ -94,11 +99,6 @@ async def pikarank(ctx):
 
     leaderboard = "🏆 **PikaPoints Leaderboard** 🏆\n" + "\n".join(lines)
     await ctx.send(leaderboard)
-
-intents = discord.Intents.default()
-intents.message_content = True
-
-bot = commands.Bot(command_prefix='!', intents=intents)
 
 #ChatGPT function
 @bot.command(name='ask')

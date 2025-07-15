@@ -150,19 +150,19 @@ async def prefixgame(ctx):
 
     # 5.a. Sanity check
     if not common_prefixes:
-        return await ctx.send("⚠️ No valid prefixes available.")
+     return await ctx.send("⚠️ No valid prefixes available.")
 
         # 5.b. Pick one, weighted by pool size
-        weights = [len(prefix_map[p]) for p in common_prefixes]
-        current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
-        submissions = {}
+     weights = [len(prefix_map[p]) for p in common_prefixes]
+     current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
+     submissions = {}
 
      # 5.c. Announce
-    await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
+     await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
 
 
-        # 2. Collect replies
-   try:
+     # 2. Collect replies
+     try:
        def check(m):
            return (
                m.channel == ctx.channel
@@ -172,12 +172,7 @@ async def prefixgame(ctx):
        while True:
            guess = await bot.wait_for('message', timeout=10.0, check=check)
            submissions[guess.author] = guess.content
-   except asyncio.TimeoutError:
-       pass
-
-
-   # 3. Determine winner
-   if not submissions:
+     except asyncio.TimeoutError:
        await ctx.send("⏰ Time's up! No valid entries were submitted.")
    else:
        # pick longest submission

@@ -6,6 +6,8 @@ import os
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from openai import OpenAI
+from collections import defaultdict 
+from typing import Dict, List
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -117,32 +119,49 @@ async def ask(ctx, *, prompt):
     except Exception as e:
         await ctx.send(f"Error: {str(e)}")
 
-# Prefix word game logic
+# ─── Prefix word game logic ──────────────────────────────────────────
 
-# Load word list
-with open("words_alpha.txt", "r") as file:
-    WORDS = set(word.strip().lower() for word in file.readlines())
+# 1. Load word list
+with open("words_alpha.txt", "r") as f:
+    WORDS = set(line.strip().lower() for line in f)
 
-# Store current prefix and submissions
+# 2. Prepare storage for the current round
 current_prefix = None
 submissions = {}
 
-@bot.command(name='prefixgame')
+# 3. Build prefix→words map
+prefix_map: Dict[str, List[str]] = defaultdict(list)
+for w in WORDS:
+    if len(w) >= 3:
+        p = w[:3]
+        prefix_map[p].append(w)
+
+# 4. Filter to “common” prefixes
+MIN_WORDS_PER_PREFIX = 5
+common_prefixes = [
+    p for p, lst in prefix_map.items()
+    if len(lst) >= MIN_WORDS_PER_PREFIX
+]
+
+# 5. The command
+@bot.command(name="prefixgame")
 async def prefixgame(ctx):
-    global current_prefix, submissions 
-    """
-    Start a prefix‐game round: bot posts a 3‐letter prefix and collects replies.
-    Usage: !prefixgame
-    """
+    global current_prefix, submissions
 
-    # 1. Pick & announce prefix
+    # 5.a. Sanity check
+    if not common_prefixes:
+        return await ctx.send("⚠️ No valid prefixes available.")
 
-    prefixes = list({w[:3] for w in WORDS if len(w) >=3})
-    current_prefix = random.choice(prefixes)
+    # 5.b. Pick one, weighted by pool size
+    weights = [len(prefix_map[p]) for p in common_prefixes]
+    current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
     submissions = {}
-    await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`!")
 
-    # 2. Collect replies
+    # 5.c. Announce
+    await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
+
+
+    # (the rest of your existing reply-collection & scoring logic)
     try:
         def check(m):
             return (
@@ -150,15 +169,11 @@ async def prefixgame(ctx):
                 and m.content.lower().startswith(current_prefix)
                 and len(m.content) > len(current_prefix)
             )
-        while True:
-            guess = await bot.wait_for('message', timeout=10.0, check=check)
-            submissions[guess.author] = guess.content
-    except asyncio.TimeoutError:
-        pass
 
-    # 3. Determine winner
-    if not submissions:
-        await ctx.send("⏰ Time's up! No valid entries were submitted.")
+        # … your while/timeout code here …
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Time's up! …")
+
     else:
         # pick longest submission
         winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))

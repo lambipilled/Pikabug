@@ -160,22 +160,25 @@ async def prefixgame(ctx):
 
     # 5.d. Collect replies
     try:
-        def check(m):
-            return (
-                m.channel == ctx.channel
-                and m.content.lower().startswith(current_prefix)
-                and len(m.content) > len(current_prefix)
+def check(m):
+    return (
+        m.channel == ctx.channel
+        and not m.author.bot
+        and m.content.lower().startswith(current_prefix.lower())
+        and len(m.content) > len(current_prefix)
             )
 
-        while True:
-            guess = await bot.wait_for("message", timeout=10.0, check=check)
-            submissions[guess.author] = guess.content
-
+while True:
+    try:
+        guess = await bot.wait_for("message", timeout=10.0, check=check)
+        submissions[guess.author] = guess.content
     except asyncio.TimeoutError:
-        await ctx.send("⏰ Time's up! No valid entries were submitted.")
-        return
+        break  # <-- break, don't return!
 
-    else:
+# After collecting, check if there are any valid submissions
+if not submissions:
+    await ctx.send("⏰ Time's up! No valid entries were submitted.")
+    return
         # 5.e. Determine the winner and award points
         winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))
         guild_id = str(ctx.guild.id)

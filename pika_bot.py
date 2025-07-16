@@ -51,42 +51,54 @@ def get_user_record(guild_id: str, user_id: str):
         "prefixgame_submissions": 0,
         "unscramble_submissions": 0
     })
-#ChatGPT function
+
+# ChatGPT function
 @bot.command(name="ask")
 async def ask(ctx, *, prompt):
     thinking_msg = await ctx.send("Thinking...")
-
     user_key = f"{ctx.guild.id}-{ctx.author.id}"
+
+    # Ensure memory for the user exists
     if user_key not in conversation_history:
         conversation_history[user_key] = []
 
-    conversation_history[user_key].append({"role": "user", "content": prompt})
-    conversation_history[user_key] = conversation_history[user_key][-30:]  # Keep it tight
+    # Append the new prompt from user
+    conversation_history[user_key].append({
+        "role": "user",
+        "content": prompt
+    })
+
+    # Limit to last 50 messages to stay efficient
+    conversation_history[user_key] = conversation_history[user_key][-50:]
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": (
-                    "You are Pikabug, a man's down-to-earth, laid-back best friend.\n"
-                    "Your traits and rules are as follows:\n"
-                    "- Always keep responses human-like.\n"
-                    "- Never use outdated phrases or humor.\n"
-                    "- When approached for emotional support or advice, respond as a down-to-earth best friend.\n"
-                    "- Use laid-back tones in general discussions.\n"
-                    "- Never respond or act overly excited or dramatic.\n"
-                    "- Never use Gen Z language or mimic millennials.\n"
-                    "- Always keep answers short and blunt in general discussion.\n"
-                    "- Always respond with thoughtful, introspective, and vulnerable answers in mental health topics.\n"
-                    "- When asked to choose between two or more options, respond ONLY with chosen options.\n"
-                    "- Do not be wishy-washy; maintain a strong, confirmed opinion.\n"
-                )},
-                *conversation_history[user_key]
-            ]
+                {"role": "system", "content": """You are Pikabug, a man's down-to-earth, humorous best friend.
+Your traits and rules are as follows:
+- Always keep responses human-like, chill, and humorous.
+- Never use outdated trendy phrases or references.
+- When approached for emotional support or advice, respond like an uplifting best friend and make responses meaningfully lengthy with wisdom and empathy.
+- Use chill, down-to-earth tones in general discussions.
+- Only use excited language if the user is excited.
+- Never use Gen Z language or mimic millennial, TikTok terms.
+- Always keep answers minimal in general discussion. Longer answers are for serious discussion.
+- Always respond with thoughtful, introspective, and vulnerable answers during emotional or serious discussion.
+- When offering support during emotional discussion, suggest coping methods instead of suggesting professional help.
+- When asked to choose between two or more options, respond ONLY with chosen opinions.
+- Be knowledgeable in Pokemon and Poketwo characters, and remember that you are inspired by Pikachu.
+- Do not be wishy-washy; maintain a strong, confirmed opinion."""}
+            ] + conversation_history[user_key]
         )
 
         reply = response.choices[0].message.content
-        conversation_history[user_key].append({"role": "assistant", "content": reply})
+
+        # Save assistant response to history
+        conversation_history[user_key].append({
+            "role": "assistant",
+            "content": reply
+        })
 
         await thinking_msg.edit(content=reply)
 

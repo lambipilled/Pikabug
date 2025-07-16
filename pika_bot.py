@@ -129,51 +129,49 @@ common_prefixes = [
 
 @bot.command(name="prefixgame")
 async def prefixgame(ctx):
-    global current_prefix, submissions
-
-    # 5.b. Pick a prefix, weighted by how many words it supports
+    # 1. Pick and announce a prefix
     weights = [len(prefix_map[p]) for p in common_prefixes]
     current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
-    submissions = {}
+    await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
 
-    # 5.c. Announce the round
-    await ctx.send(
-        f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`"
-    )
-
-    # 5.d. Collect replies
-    def check(m):
+    # 2. Collect submissions, only keeping each user’s longest
+    submissions: Dict[discord.Member, str] = {}
+    def check(m: discord.Message) -> bool:
         return (
             m.channel == ctx.channel
             and not m.author.bot
-            and m.content.lower().startswith(current_prefix.lower())
-            and len(m.content) > len(current_prefix)
+            and m.content.lower().startswith(current_prefix)
+            and len(m.content.strip()) > len(current_prefix)
         )
 
     while True:
         try:
-            guess = await bot.wait_for("message", timeout=12.0, check=check)
-            submissions[guess.author] = guess.content
+            msg = await bot.wait_for("message", timeout=12.0, check=check)
+            word = msg.content.strip().lower()
+            prev = submissions.get(msg.author)
+            # Only update if this is the user’s longest so far
+            if prev is None or len(word) > len(prev):
+                submissions[msg.author] = word
         except asyncio.TimeoutError:
-            break  # <-- break, don't return!
+            break
 
+    # 3. No entries → bail out
     if not submissions:
         await ctx.send("⏰ Time's up! No valid entries were submitted.")
         return
 
-    # 5.e. Determine the winner and award points
-    winner, word = max(submissions.items(), key=lambda kv: len(kv[1]))
+    # 4. Determine winner (true longest) and award points
+    winner, winning_word = max(submissions.items(), key=lambda kv: len(kv[1]))
     guild_id = str(ctx.guild.id)
     user_id = str(winner.id)
     record = get_user_record(guild_id, user_id)
-
     record["points"] += PREFIXGAME_POINTS
     record["prefixgame_submissions"] += 1
     save_pika_data()
 
-    # 5.f. Send results
+    # 5. Send results
     await ctx.send(
-        f"🏆 **{winner.display_name}** wins with **{word}** ({len(word)} letters)!\n"
+        f"🏆 **{winner.display_name}** wins with **{winning_word}** ({len(winning_word)} letters)!\n"
         f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
         f"• Total Points: **{record['points']}**\n"
         f"• Prefix-game entries: **{record['prefixgame_submissions']}**"

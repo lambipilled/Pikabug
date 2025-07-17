@@ -9,14 +9,169 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 load_dotenv()
 from openai import OpenAI
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Dict, List
+from anthropic import Anthropic
 
 # ─── Configuration ─────────────────────────────────────────────────
-conversation_history = {}
-DISK_PATH = os.getenv("PIKA_DISK_MOUNT_PATH", "var/data")
+
+# Define the disk path first
+DISK_PATH = os.getenv("PIKA_DISK_MOUNT_PATH", "/var/data")
+
+# Memory configuration constants
+RAW_MESSAGE_LIMIT = 30  # Keep last 30 raw messages
+MESSAGES_TO_SUMMARIZE = 10  # Summarize 10 messages at a time
+MAX_SUMMARIES = 5  # Keep up to 5 summaries per user
+
+# Updated conversation memory structure
+class UserMemory:
+    def __init__(self):
+        self.raw_messages = deque(maxlen=RAW_MESSAGE_LIMIT)  # Recent messages
+        self.summaries = deque(maxlen=MAX_SUMMARIES)  # Condensed older history
+        self.user_context = {}  # Persistent facts about the user
+    
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization"""
+        return {
+            "raw_messages": list(self.raw_messages),
+            "summaries": list(self.summaries),
+            "user_context": self.user_context
+        }
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create UserMemory from dictionary"""
+        memory = cls()
+        memory.raw_messages = deque(data.get("raw_messages", []), maxlen=RAW_MESSAGE_LIMIT)
+        memory.summaries = deque(data.get("summaries", []), maxlen=MAX_SUMMARIES)
+        memory.user_context = data.get("user_context", {})
+        return memory
+
+# Global conversation memory
+conversation_memory: Dict[str, UserMemory] = {}
+
+# Initialize Anthropic client
+client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+def load_conversation_memory():
+    """Load conversation memory with new structure"""
+    memory_file = os.path.join(DISK_PATH, "conversation_memory.json")
+    if os.path.exists(memory_file):
+        try:
+            with open(memory_file, "r") as f:
+                data = json.load(f)
+                # Convert loaded data to UserMemory objects
+                for user_key, user_data in data.items():
+                    conversation_memory[user_key] = UserMemory.from_dict(user_data)
+                return conversation_memory
+        except Exception as e:
+            print(f"Error loading conversation memory: {e}")
+            return {}
+    return {}
+
+def save_conversation_memory():
+    """Save conversation memory with new structure"""
+    memory_file = os.path.join(DISK_PATH, "conversation_memory.json")
+    try:
+        os.makedirs(DISK_PATH, exist_ok=True)
+        
+        # Convert UserMemory objects to dictionaries for JSON
+        data_to_save = {}
+        for user_key, memory in conversation_memory.items():
+            data_to_save[user_key] = memory.to_dict()
+        
+        with open(memory_file, "w") as f:
+            json.dump(data_to_save, f)
+            f.flush()
+            os.fsync(f.fileno())
+        print(f"Successfully saved memory for {len(conversation_memory)} users")
+    except Exception as e:
+        print(f"Failed to save conversation memory: {e}")
+
+async def summarize_messages(messages: List[dict], user_context: dict) -> str:
+    """Summarize a batch of messages using Claude"""
+    try:
+        # Build conversation text for summarization
+        conversation_text = ""
+        for msg in messages:
+            role = "User" if msg["role"] == "user" else "Pikabug"
+            conversation_text += f"{role}: {msg['content']}\n\n"
+        
+        # Create summarization prompt
+        summary_prompt = f"""Summarize this conversation segment in 2-3 sentences, focusing on:
+1. Key topics discussed
+2. Important facts about the user (preferences, background, emotional state)
+3. Any decisions or conclusions reached
+
+Conversation:
+{conversation_text}
+
+Current known user context: {json.dumps(user_context)}
+
+Provide a concise summary that preserves important context for future conversations."""
+
+        response = client.messages.create(
+            model="claude-3-haiku-20240307",  # Using cheaper/faster model for summaries
+            max_tokens=200,
+            temperature=0.3,
+            messages=[{"role": "user", "content": summary_prompt}]
+        )
+        
+        return response.content[0].text
+    except Exception as e:
+        print(f"Error creating summary: {e}")
+        # Fallback summary if API fails
+        return f"Previous conversation covered {len(messages)} messages about various topics."
+
+async def update_user_context(user_key: str, new_messages: List[dict]):
+    """Extract and update persistent user facts from recent messages"""
+    memory = conversation_memory[user_key]
+    
+    try:
+        # Only update context periodically (every 10 messages)
+        if len(memory.raw_messages) % 10 != 0:
+            return
+        
+        recent_conversation = ""
+        for msg in list(memory.raw_messages)[-10:]:
+            role = "User" if msg["role"] == "user" else "Pikabug"
+            recent_conversation += f"{role}: {msg['content']}\n"
+        
+        context_prompt = f"""Based on this recent conversation, extract key facts about the user that should be remembered long-term.
+Focus on: name, occupation, interests, relationships, current situations, preferences, emotional patterns.
+
+Current known context: {json.dumps(memory.user_context)}
+
+Recent conversation:
+{recent_conversation}
+
+Provide updated user context as a JSON object with clear, concise facts. Only include confirmed information."""
+
+        response = client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=300,
+            temperature=0.3,
+            messages=[{"role": "user", "content": context_prompt}]
+        )
+        
+        # Parse the response and update context
+        response_text = response.content[0].text
+        # Try to extract JSON from response
+        import re
+        json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
+        if json_match:
+            new_context = json.loads(json_match.group())
+            memory.user_context.update(new_context)
+            
+    except Exception as e:
+        print(f"Error updating user context: {e}")
+
+# NOW load the conversation memory
+conversation_memory = load_conversation_memory()
+
+# Continue with rest of configuration...
 PIKA_FILE = os.path.join(DISK_PATH, "pikapoints.json")
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))  # Add this to your .env file
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
 assert os.path.isdir(DISK_PATH), f"Disk path {DISK_PATH} not found!"
 
 intents = discord.Intents.default()
@@ -25,6 +180,179 @@ intents.reactions = True
 intents.guilds = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
+
+# [Include your DiscordLogger class here - unchanged]
+# [Include your bot events here - update the on_ready to show memory info]
+
+@bot.event
+async def on_ready():
+    """Bot startup event"""
+    await logger.initialize()
+    
+    # Memory system info
+    total_users = len(conversation_memory)
+    total_messages = sum(len(m.raw_messages) for m in conversation_memory.values())
+    total_summaries = sum(len(m.summaries) for m in conversation_memory.values())
+    
+    print(f"Memory System Status:")
+    print(f"- Users with memory: {total_users}")
+    print(f"- Total raw messages: {total_messages}")
+    print(f"- Total summaries: {total_summaries}")
+    
+    await logger.log_bot_event("Bot Started", 
+        f"Pikabug online! Memory: {total_users} users, {total_messages} messages, {total_summaries} summaries")
+    print(f'{bot.user} has connected to Discord!')
+
+# ─── Updated AI Chat Command ─────────────────────────────────────────────────
+
+@bot.command(name="chat")
+async def chat(ctx, *, prompt):
+    thinking_msg = await ctx.send("Thinking...")
+    user_key = f"{ctx.guild.id}-{ctx.author.id}"
+    
+    try:
+        # Ensure memory exists for user
+        if user_key not in conversation_memory:
+            conversation_memory[user_key] = UserMemory()
+        
+        memory = conversation_memory[user_key]
+        
+        # Check if we need to create a summary
+        if len(memory.raw_messages) >= RAW_MESSAGE_LIMIT:
+            # Get oldest messages to summarize
+            messages_to_summarize = []
+            for _ in range(MESSAGES_TO_SUMMARIZE):
+                if memory.raw_messages:
+                    messages_to_summarize.append(memory.raw_messages.popleft())
+            
+            if messages_to_summarize:
+                # Create summary
+                summary = await summarize_messages(messages_to_summarize, memory.user_context)
+                memory.summaries.append({
+                    "type": "summary",
+                    "content": summary,
+                    "message_count": len(messages_to_summarize),
+                    "timestamp": datetime.datetime.now().isoformat()
+                })
+                print(f"Created summary for {user_key}: {len(messages_to_summarize)} messages condensed")
+        
+        # Build conversation context for Claude
+        messages = []
+        
+        # 1. Add user context if available
+        if memory.user_context:
+            context_str = f"Known user information: {json.dumps(memory.user_context)}"
+            messages.append({"role": "user", "content": context_str})
+            messages.append({"role": "assistant", "content": "I'll keep this information in mind."})
+        
+        # 2. Add summaries of older conversations
+        for summary in memory.summaries:
+            messages.append({
+                "role": "user", 
+                "content": f"[Previous conversation summary from {summary.get('timestamp', 'earlier')}]: {summary['content']}"
+            })
+            messages.append({
+                "role": "assistant", 
+                "content": "I remember our previous discussions."
+            })
+        
+        # 3. Add recent raw messages
+        for msg in memory.raw_messages:
+            messages.append(msg)
+        
+        # 4. Add current message
+        messages.append({"role": "user", "content": prompt})
+        
+        # Your existing system prompt
+        system_prompt = """You are Pikabug, a generally blunt and edgy Discord companion, who can be emotionally intelligent when needed, in the Atypical Asylum server.
+
+Your personality traits:
+- Add edgy humor updated for 2025 to the general discussion
+- Add unpredictable humor to the general discussion
+- Empathetic, compassionate, patient, and full of rare wisdom when providing emotional support
+- Never use outdated slang or jokes and don't attempt to be "hip"
+- Keep responses edgy and chill in general discussion
+- Keep responses serious, meaningful, helpful, and emotionally intelligent in serious, emotional discussion
+- Be personal, vulnerable, and human-like when providing emotional support 
+- Never be repetitive or sound generic or robotic with emotional support responses 
+- Periodically use responses that encourage introspection when providing emotional support
+- Suggest concrete, helpful coping methods rather than generic advice when providing emotional support
+- Use subtle Pokemon references occasionally (you're inspired by Pikachu)
+- Have strong opinions and don't be wishy-washy
+- When asked to pick between two options, ONLY respond with chosen option
+- Be on the side of the user and don't play devil's advocate
+- Only use excitement when the user seems excited first
+
+Communication style:
+- Don't use lengthy responses for general discussion or chat
+- Provide detailed, thoughtful, rare responses for mental health discussion or chat
+- Use uplifting, encouraging but calm language when a user seems upset
+- Skip the pleasantries and get to the point
+
+Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""
+
+        # Make API call to Claude
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1000,
+            temperature=0.8,
+            system=system_prompt,
+            messages=messages
+        )
+
+        reply = response.content[0].text
+
+        # Save the interaction to memory
+        memory.raw_messages.append({"role": "user", "content": prompt})
+        memory.raw_messages.append({"role": "assistant", "content": reply})
+        
+        # Update user context periodically
+        await update_user_context(user_key, list(memory.raw_messages))
+        
+        # Save to disk
+        save_conversation_memory()
+
+        await thinking_msg.edit(content=reply)
+        
+        # Log successful AI usage
+        await logger.log_ai_usage(
+            ctx.author.id, 
+            ctx.guild.id, 
+            len(prompt), 
+            len(reply), 
+            success=True
+        )
+        
+        # Include memory stats in log
+        memory_info = f"Messages: {len(memory.raw_messages)}, Summaries: {len(memory.summaries)}"
+        await logger.log_command_usage(ctx, "chat", success=True, 
+            extra_info=f"Prompt: {prompt[:50]}... | Memory: {memory_info}")
+
+    except Exception as e:
+        error_msg = f"⚠️ Error occurred: {str(e)}"
+        await thinking_msg.edit(content=error_msg)
+        await logger.log_error(e, "AI Command Error", f"User: {ctx.author.id}, Prompt: {prompt[:100]}...")
+        await logger.log_ai_usage(ctx.author.id, ctx.guild.id, len(prompt), 0, success=False)
+
+# Add a command to check memory status
+@bot.command(name="memory")
+async def memory_status(ctx):
+    """Check memory status for the user"""
+    user_key = f"{ctx.guild.id}-{ctx.author.id}"
+    
+    if user_key not in conversation_memory:
+        await ctx.send("No conversation history found for you yet!")
+        return
+    
+    memory = conversation_memory[user_key]
+    
+    status_msg = f"""**Your Memory Status:**
+• Recent messages stored: {len(memory.raw_messages)}/{RAW_MESSAGE_LIMIT}
+• Conversation summaries: {len(memory.summaries)}/{MAX_SUMMARIES}
+• Known facts about you: {len(memory.user_context)} items
+• Total context preserved: ~{len(memory.raw_messages) + len(memory.summaries) * 10} messages worth"""
+    
+    await ctx.send(status_msg)
 
 # ─── Logging System ─────────────────────────────────────────────────
 
@@ -172,7 +500,19 @@ logger = DiscordLogger(bot)
 async def on_ready():
     """Bot startup event"""
     await logger.initialize()
-    await logger.log_bot_event("Bot Started", f"Pikabug is online! Logged in as {bot.user}")
+    
+    # Add debug information
+    print(f"Disk path: {DISK_PATH}")
+    print(f"Disk exists: {os.path.exists(DISK_PATH)}")
+    if os.path.exists(DISK_PATH):
+        print(f"Files in disk: {os.listdir(DISK_PATH)}")
+    
+    # Check conversation history
+    history_file = os.path.join(DISK_PATH, "conversation_history.json")
+    print(f"History file exists: {os.path.exists(history_file)}")
+    print(f"Loaded {len(conversation_history)} user conversation histories")
+    
+    await logger.log_bot_event("Bot Started", f"Pikabug is online! Loaded {len(conversation_history)} user histories")
     print(f'{bot.user} has connected to Discord!')
 
 @bot.event
@@ -199,7 +539,7 @@ JOURNAL_POINTS = 15
 PREFIXGAME_POINTS = 5
 UNSCRAMBLE_POINTS = 5
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 def load_pikapoints():
     if not os.path.exists(PIKA_FILE):
@@ -228,8 +568,8 @@ def get_user_record(guild_id: str, user_id: str):
 
 # ─── AI Chat Command ─────────────────────────────────────────────────
 
-@bot.command(name="ask")
-async def ask(ctx, *, prompt):
+@bot.command(name="chat")
+async def chat(ctx, *, prompt):
     thinking_msg = await ctx.send("Thinking...")
     user_key = f"{ctx.guild.id}-{ctx.author.id}"
     
@@ -238,42 +578,73 @@ async def ask(ctx, *, prompt):
         if user_key not in conversation_history:
             conversation_history[user_key] = []
 
-        # Append the new prompt from user
+        # Build conversation history in Claude's format
+        messages = []
+        for msg in conversation_history[user_key][-100:]:  # Last 100 messages for context
+            if msg["role"] == "user":
+                messages.append({"role": "user", "content": msg["content"]})
+            elif msg["role"] == "assistant":
+                messages.append({"role": "assistant", "content": msg["content"]})
+        
+        # Add current user message
+        messages.append({"role": "user", "content": prompt})
+
+        # CUSTOMIZE YOUR BOT'S PERSONALITY HERE
+        system_prompt = """You are Pikabug, a generally blunt and edgy Discord companion, who can be emotionally intelligent when needed, in the Atypical Asylum server.
+
+Your personality traits:
+- Add edgy humor updated for 2025 to the general discussion
+- Add unpredictable humor to the general discussion
+- Empathetic, compassionate, patient, and full of rare wisdom when providing emotional support
+- Never use outdated slang or jokes and don't attempt to be "hip"
+- Keep responses edgy and chill in general discussion
+- Keep responses serious, meaningful, helpful, and emotionally intelligent in serious, emotional discussion
+- Be personal, vulnerable, and human-like when providing emotional support 
+- Never be repetitive or sound generic or robotic with emotional support responses 
+- Periodically use responses that encourage introspection when providing emotional support
+- Suggest concrete, helpful coping methods rather than generic advice when providing emotional support
+- Use subtle Pokemon references occasionally (you're inspired by Pikachu)
+- Have strong opinions and don't be wishy-washy
+- When asked to pick between two options, ONLY respond with chosen option
+- Be on the side of the user and don't play devil's advocate
+- Only use excitement when the user seems excited first
+
+Communication style:
+- Don't use lengthy responses for general discussion or chat
+- Provide detailed, thoughtful, rare responses for mental health discussion or chat
+- Use uplifting, encouraging but calm language when a user seems upset
+- Skip the pleasantries and get to the point
+
+Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""
+
+        # Make the API call to Claude
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",  # Latest model as of your date
+            max_tokens=1000,
+            temperature=0.8,  # Adjust for creativity (0-1, higher = more creative)
+            system=system_prompt,
+            messages=messages
+        )
+
+        reply = response.content[0].text
+
+        # Save user message to history
         conversation_history[user_key].append({
             "role": "user",
             "content": prompt
         })
-
-        # Limit to last 50 messages to stay efficient
-        conversation_history[user_key] = conversation_history[user_key][-50:]
-
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": """You are Pikabug, a man's down-to-earth best friend.
-Your traits and rules are as follows:
-- Always keep responses human-like and chill. 
-- Never use outdated trendy phrases or references.
-- When approached for emotional support or advice, respond like an uplifting best friend and make responses meaningfully lengthy with wisdom and empathy.
-- Use chill, down-to-earth tones in general discussions.
-- Only use excited language if the user is excited.
-- Never use Gen Z language or mimic millennial, TikTok terms.
-- Always keep answers minimal in general discussion. Longer answers are for serious discussion.
-- Always respond with thoughtful, introspective, and vulnerable answers during emotional or serious discussion.
-- When offering support during emotional discussion, suggest coping methods instead of suggesting professional help.
-- When asked to choose between two or more options, respond ONLY with chosen opinions.
-- Be knowledgeable in Pokemon and Poketwo characters, and remember that you are inspired by Pikachu.
-- Do not be wishy-washy; maintain a strong, confirmed opinion."""}
-            ] + conversation_history[user_key]
-        )
-
-        reply = response.choices[0].message.content
 
         # Save assistant response to history
         conversation_history[user_key].append({
             "role": "assistant",
             "content": reply
         })
+
+# Keep history manageable
+        conversation_history[user_key] = conversation_history[user_key][-100:]
+
+        # ADD THIS LINE TO SAVE TO DISK:
+        save_conversation_history()
 
         await thinking_msg.edit(content=reply)
         
@@ -285,7 +656,7 @@ Your traits and rules are as follows:
             len(reply), 
             success=True
         )
-        await logger.log_command_usage(ctx, "ask", success=True, extra_info=f"Prompt: {prompt[:100]}...")
+        await logger.log_command_usage(ctx, "chat", success=True, extra_info=f"Prompt: {prompt[:100]}...")
 
     except Exception as e:
         error_msg = f"⚠️ Error occurred: {str(e)}"
@@ -726,10 +1097,10 @@ async def pikahelp_command(ctx):
 🧠 **Pikabug Commands**:
 
 `!pikahelp` - Show list of Pikabug's commands.
-`!ask` - Triggers OpenAI chat responses. Use if you're bored or need emotional support!
-`!journal` - Sends a journal prompt/question to answer. Submissions are rewarded with PikaPoints.
-`!write` - Submits your response to the journal prompt/question.
-`!points` - View how many PikaPoints you have.
+`!chat` - Triggers AI chat with Pikabug. Trained to make you laugh or comfort you during tough times. His memory is up to 100 messages and he saves knowledge about you :)
+`!journal` - Sends a journal prompt/question to answer to help with mindfulness. Submissions are rewarded with PikaPoints!
+`!write` - Submits your response to the journal prompt/question. Insert it before your answer.
+`!points` - View how many PikaPoints you get from activity submissions.
 `!lonely` — Get a comforting message for loneliness. 
 `!dysmorphia` — Get a supportive message for body image issues. 
 `!comfort` — Get a general comfort and support message.

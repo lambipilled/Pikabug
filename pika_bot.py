@@ -49,11 +49,11 @@ class DiscordLogger:
     async def log_command_usage(self, ctx, command_name, success=True, extra_info=""):
         """Log command usage with context"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        status = "✅ SUCCESS" if success else "❌ FAILED"
+    
         
         embed = discord.Embed(
             title=f"Command: {command_name}",
-            color=0x00ff00 if success else 0xff0000,
+            color=0x00ff00,
             timestamp=datetime.datetime.now()
         )
         
@@ -92,38 +92,6 @@ class DiscordLogger:
         
         await self._send_log(embed)
     
-    async def log_points_award(self, user_id, guild_id, points_awarded, command_type, new_total):
-        """Log PikaPoints awards"""
-        embed = discord.Embed(
-            title="💰 PikaPoints Awarded",
-            color=0xffd700,
-            timestamp=datetime.datetime.now()
-        )
-        
-        embed.add_field(name="User ID", value=str(user_id), inline=True)
-        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
-        embed.add_field(name="Points Awarded", value=str(points_awarded), inline=True)
-        embed.add_field(name="Command Type", value=command_type, inline=True)
-        embed.add_field(name="New Total", value=str(new_total), inline=True)
-        
-        await self._send_log(embed)
-    
-    async def log_game_result(self, game_type, winner_id, guild_id, details=""):
-        """Log game results"""
-        embed = discord.Embed(
-            title=f"🎮 Game Result: {game_type}",
-            color=0x00ffff,
-            timestamp=datetime.datetime.now()
-        )
-        
-        embed.add_field(name="Winner ID", value=str(winner_id), inline=True)
-        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
-        embed.add_field(name="Game Type", value=game_type, inline=True)
-        
-        if details:
-            embed.add_field(name="Details", value=details[:1024], inline=False)
-        
-        await self._send_log(embed)
     
     async def log_ai_usage(self, user_id, guild_id, prompt_length, response_length, success=True):
         """Log AI command usage"""
@@ -253,7 +221,7 @@ async def chat(ctx, *, prompt):
 Your personality traits:
 - Add edgy humor updated for 2025 to the general discussion
 - Add unpredictable humor to the general discussion
-- Empathetic, compassionate, patient, and full of rare wisdom when providing emotional support
+- Empathetic, patient, and full of rare wisdom when providing emotional support
 - Never use outdated slang or jokes and don't attempt to be "hip"
 - Keep responses edgy and chill in general discussion
 - Keep responses serious, meaningful, helpful, and emotionally intelligent in serious, emotional discussion
@@ -271,7 +239,7 @@ Communication style:
 - Don't use lengthy responses for general discussion or chat
 - Provide detailed, thoughtful, rare responses for mental health discussion or chat
 - Use uplifting, encouraging but calm language when a user seems upset
-- Skip the pleasantries and get to the point
+
 
 Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""}
         ]
@@ -287,7 +255,7 @@ Remember: You're a trusted edgy, humorous friend who tells it like it is, but ge
             model="gpt-4o",
             messages=messages,
             max_tokens=1000,
-            temperature=0.8
+            temperature=0.9
         )
 
         reply = response.choices[0].message.content

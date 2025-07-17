@@ -183,7 +183,7 @@ def save_conversation_memory():
 
 async def summarize_messages(messages: List[dict], user_context: dict) -> str:
     conversation_text = "".join(
-        f"{('User' if msg['role']=='user' else 'Pikabug')}: {msg['content']}\n\n" \
+        f"{('User' if msg['role']=='user' else 'Pikabug')}: {msg['content']}\n\n"
         for msg in messages
     )
     prompt = f"""Summarize this segment in 2-3 sentences focusing on key topics, user facts, decisions.
@@ -193,24 +193,27 @@ Current context: {json.dumps(user_context)}
 Segment:
 {conversation_text}"""
     try:
-response = client.chat.completions.create(
-    model="gpt-4o",  # or "gpt-4-turbo" or another available model
-    messages=[
-        {"role": "system", "content": system_prompt},
-        *msgs  # msgs is your list of {"role": ..., "content": ...}
-    ],
-    max_tokens=1000,
-    temperature=0.8,
-)
-reply = response.choices[0].message.content
+        response = client.chat.completions.create(
+            model="gpt-4o",  # or "gpt-4-turbo" or another available model
+            messages=[
+                {"role": "system", "content": system_prompt},
+                *msgs  # msgs is your list of {"role": ..., "content": ...}
+            ],
+            max_tokens=1000,
+            temperature=0.8,
+        )
+        reply = response.choices[0].message.content
     except Exception as e:
         print(f"Summary error: {e}")
         return f"Summary: {len(messages)} messages about various topics."
+    return reply
+
 
 async def update_user_context(user_key: str):
     memory = conversation_memory[user_key]
     if len(memory.raw_messages) < MESSAGES_TO_SUMMARIZE or len(memory.raw_messages) % MESSAGES_TO_SUMMARIZE != 0:
         return
+
     recent = list(memory.raw_messages)[-MESSAGES_TO_SUMMARIZE:]
     conv = "".join(
         f"{('User' if msg['role']=='user' else 'Pikabug')}: {msg['content']}\n" for msg in recent
@@ -222,21 +225,23 @@ Known context: {json.dumps(memory.user_context)}
 Recent conversation:
 {conv}"""
     try:
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[
-        {"role": "system", "content": "You are Pikabug, an edgy assistant who can be empathetic when needed."},
-        {"role": "user", "content": prompt}
-    ],
-    max_tokens=200,
-    temperature=0.8,
-)
-return response.choices[0].message.content
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are Pikabug, an edgy assistant who can be empathetic when needed."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=200,
+            temperature=0.8,
+        )
+        result = response.choices[0].message.content
         if match:
             new_ctx = json.loads(match.group())
             memory.user_context.update(new_ctx)
+        return result
     except Exception as e:
         print(f"Context update error: {e}")
+
 
 # Load memory at startup
 conversation_memory = load_conversation_memory()

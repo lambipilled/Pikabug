@@ -5,54 +5,39 @@ import json
 import os
 import traceback
 import datetime
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
-
+load_dotenv()
 from openai import OpenAI
-from collections import deque, defaultdict
+from collections import defaultdict, deque
 from typing import Dict, List
 
-# ─── Load Environment Variables ─────────────────────────────────────────────
-load_dotenv()
+# ─── Configuration ─────────────────────────────────────────────────
+# Session-only conversation history (not saved to disk)
+conversation_history = {}
+CONVERSATION_LIMIT = 50  # Keep last 50 messages per user in memory
 
-# ─── Configuration Constants ───────────────────────────────────────────────
-RAW_MESSAGE_LIMIT = 30
-MESSAGES_TO_SUMMARIZE = 10
-MAX_SUMMARIES = 5
 DISK_PATH = os.getenv("PIKA_DISK_MOUNT_PATH", "/var/data")
-MEMORY_FILE = os.path.join(DISK_PATH, "conversation_memory.json")
 PIKA_FILE = os.path.join(DISK_PATH, "pikapoints.json")
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
+assert os.path.isdir(DISK_PATH), f"Disk path {DISK_PATH} not found!"
 
-# ─── User Memory Structure ────────────────────────────────────────────────
-class UserMemory:
-    def __init__(self):
-        self.raw_messages = deque(maxlen=RAW_MESSAGE_LIMIT)
-        self.summaries = deque(maxlen=MAX_SUMMARIES)
-        self.user_context: Dict[str, str] = {}
+intents = discord.Intents.default()
+intents.message_content = True
+intents.reactions = True
+intents.guilds = True
 
-    def to_dict(self) -> dict:
-        return {
-            "raw_messages": list(self.raw_messages),
-            "summaries": list(self.summaries),
-            "user_context": self.user_context
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "UserMemory":
-        memory = cls()
-        memory.raw_messages = deque(data.get("raw_messages", []), maxlen=RAW_MESSAGE_LIMIT)
-        memory.summaries = deque(data.get("summaries", []), maxlen=MAX_SUMMARIES)
-        memory.user_context = data.get("user_context", {})
-        return memory
+bot = commands.Bot(command_prefix='!', intents=intents)
 
 # ─── Logging System ─────────────────────────────────────────────────
+
 class DiscordLogger:
     def __init__(self, bot):
         self.bot = bot
         self.log_channel = None
-
+        
     async def initialize(self):
+        """Initialize the log channel after bot is ready"""
         if LOG_CHANNEL_ID:
             try:
                 self.log_channel = self.bot.get_channel(LOG_CHANNEL_ID)
@@ -60,88 +45,116 @@ class DiscordLogger:
                     print(f"Warning: Could not find log channel with ID {LOG_CHANNEL_ID}")
             except Exception as e:
                 print(f"Error initializing log channel: {e}")
-
+    
     async def log_command_usage(self, ctx, command_name, success=True, extra_info=""):
+        """Log command usage with context"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         status = "✅ SUCCESS" if success else "❌ FAILED"
+        
         embed = discord.Embed(
             title=f"Command: {command_name}",
             color=0x00ff00 if success else 0xff0000,
             timestamp=datetime.datetime.now()
         )
+        
         embed.add_field(name="User", value=f"{ctx.author.mention} ({ctx.author.id})", inline=True)
         embed.add_field(name="Guild", value=f"{ctx.guild.name} ({ctx.guild.id})", inline=True)
         embed.add_field(name="Channel", value=f"#{ctx.channel.name} ({ctx.channel.id})", inline=True)
         embed.add_field(name="Status", value=status, inline=False)
+        
         if extra_info:
             embed.add_field(name="Details", value=extra_info[:1024], inline=False)
+            
         await self._send_log(embed)
-
+    
     async def log_error(self, error, context="General Error", extra_details=""):
+        """Log errors with full traceback"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         embed = discord.Embed(
             title="🚨 ERROR OCCURRED",
             color=0xff0000,
             timestamp=datetime.datetime.now()
         )
+        
         embed.add_field(name="Context", value=context, inline=True)
         embed.add_field(name="Error Type", value=type(error).__name__, inline=True)
         embed.add_field(name="Error Message", value=str(error)[:1024], inline=False)
+        
         if extra_details:
             embed.add_field(name="Extra Details", value=extra_details[:1024], inline=False)
+        
+        # Add traceback as a separate field
         tb = traceback.format_exc()
         if len(tb) > 1024:
-            tb = tb[-1024:]
+            tb = tb[-1024:]  # Keep last 1024 chars of traceback
         embed.add_field(name="Traceback", value=f"```python\n{tb}\n```", inline=False)
+        
         await self._send_log(embed)
-
+    
     async def log_points_award(self, user_id, guild_id, points_awarded, command_type, new_total):
+        """Log PikaPoints awards"""
         embed = discord.Embed(
             title="💰 PikaPoints Awarded",
             color=0xffd700,
             timestamp=datetime.datetime.now()
         )
+        
         embed.add_field(name="User ID", value=str(user_id), inline=True)
         embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
         embed.add_field(name="Points Awarded", value=str(points_awarded), inline=True)
         embed.add_field(name="Command Type", value=command_type, inline=True)
         embed.add_field(name="New Total", value=str(new_total), inline=True)
+        
         await self._send_log(embed)
-
+    
     async def log_game_result(self, game_type, winner_id, guild_id, details=""):
+        """Log game results"""
         embed = discord.Embed(
             title=f"🎮 Game Result: {game_type}",
             color=0x00ffff,
             timestamp=datetime.datetime.now()
         )
+        
         embed.add_field(name="Winner ID", value=str(winner_id), inline=True)
         embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
         embed.add_field(name="Game Type", value=game_type, inline=True)
+        
         if details:
             embed.add_field(name="Details", value=details[:1024], inline=False)
+        
         await self._send_log(embed)
-
+    
     async def log_ai_usage(self, user_id, guild_id, prompt_length, response_length, success=True):
+        """Log AI command usage"""
         embed = discord.Embed(
             title="🤖 AI Command Usage",
             color=0x9932cc,
             timestamp=datetime.datetime.now()
         )
+        
         embed.add_field(name="User ID", value=str(user_id), inline=True)
         embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
         embed.add_field(name="Prompt Length", value=f"{prompt_length} chars", inline=True)
         embed.add_field(name="Response Length", value=f"{response_length} chars", inline=True)
         embed.add_field(name="Success", value="✅" if success else "❌", inline=True)
+        
         await self._send_log(embed)
-
+    
     async def log_bot_event(self, event_type, message):
+        """Log general bot events"""
         embed = discord.Embed(
             title=f"🔔 Bot Event: {event_type}",
             color=0x808080,
             timestamp=datetime.datetime.now()
         )
+        
         embed.add_field(name="Message", value=message[:1024], inline=False)
+        
         await self._send_log(embed)
-
+    
     async def _send_log(self, embed):
+        """Internal method to send log to Discord channel"""
         if self.log_channel:
             try:
                 await self.log_channel.send(embed=embed)
@@ -153,115 +166,32 @@ class DiscordLogger:
             for field in embed.fields:
                 print(f"{field.name}: {field.value}")
 
-# ─── Global Memory and AI Client ───────────────────────────────────────────
-conversation_memory: Dict[str, UserMemory] = {}
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-def load_conversation_memory() -> Dict[str, UserMemory]:
-    if os.path.exists(MEMORY_FILE):
-        try:
-            with open(MEMORY_FILE, "r") as f:
-                data = json.load(f)
-            for user_key, user_data in data.items():
-                conversation_memory[user_key] = UserMemory.from_dict(user_data)
-        except Exception as e:
-            print(f"Error loading memory: {e}")
-    return conversation_memory
-
-def save_conversation_memory():
-    os.makedirs(DISK_PATH, exist_ok=True)
-    data_to_save = {k: m.to_dict() for k, m in conversation_memory.items()}
-    try:
-        with open(MEMORY_FILE, "w") as f:
-            json.dump(data_to_save, f)
-            f.flush()
-            os.fsync(f.fileno())
-        print(f"Memory saved for {len(conversation_memory)} users")
-    except Exception as e:
-        print(f"Failed to save memory: {e}")
-
-async def summarize_messages(messages: List[dict], user_context: dict) -> str:
-    conversation_text = "".join(
-        f"{('User' if msg['role']=='user' else 'Pikabug')}: {msg['content']}\n\n"
-        for msg in messages
-    )
-    prompt = f"""Summarize this segment in 2-3 sentences focusing on key topics, user facts, decisions.
-
-Current context: {json.dumps(user_context)}
-
-Segment:
-{conversation_text}"""
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o",  # or "gpt-4-turbo" or another available model
-            messages=[
-                {"role": "system", "content": system_prompt},
-                *msgs  # msgs is your list of {"role": ..., "content": ...}
-            ],
-            max_tokens=1000,
-            temperature=0.8,
-        )
-        reply = response.choices[0].message.content
-    except Exception as e:
-        print(f"Summary error: {e}")
-        return f"Summary: {len(messages)} messages about various topics."
-    return reply
-
-
-async def update_user_context(user_key: str):
-    memory = conversation_memory[user_key]
-    if len(memory.raw_messages) < MESSAGES_TO_SUMMARIZE or len(memory.raw_messages) % MESSAGES_TO_SUMMARIZE != 0:
-        return
-
-    recent = list(memory.raw_messages)[-MESSAGES_TO_SUMMARIZE:]
-    conv = "".join(
-        f"{('User' if msg['role']=='user' else 'Pikabug')}: {msg['content']}\n" for msg in recent
-    )
-    prompt = f"""Extract key user facts as JSON.
-
-Known context: {json.dumps(memory.user_context)}
-
-Recent conversation:
-{conv}"""
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are Pikabug, an edgy assistant who can be empathetic when needed."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=200,
-            temperature=0.8,
-        )
-        result = response.choices[0].message.content
-        if match:
-            new_ctx = json.loads(match.group())
-            memory.user_context.update(new_ctx)
-        return result
-    except Exception as e:
-        print(f"Context update error: {e}")
-
-
-# Load memory at startup
-conversation_memory = load_conversation_memory()
-# ─── Bot Setup ─────────────────────────────────────────────────────────────
-intents = discord.Intents.default()
-intents.message_content = True
-intents.reactions = True
-intents.guilds = True
-
-bot = commands.Bot(command_prefix='!', intents=intents)
+# Initialize logger
 logger = DiscordLogger(bot)
 
 # ─── Bot Events ─────────────────────────────────────────────────
+
+@bot.event
+async def on_ready():
+    """Bot startup event"""
+    await logger.initialize()
+    await logger.log_bot_event("Bot Started", f"Pikabug is online! Logged in as {bot.user}")
+    print(f'{bot.user} has connected to Discord!')
+    print(f'Disk path: {DISK_PATH}')
+    print(f'Disk path exists: {os.path.exists(DISK_PATH)}')
+    if os.path.exists(DISK_PATH):
+        print(f'Files in disk: {os.listdir(DISK_PATH)}')
+
 @bot.event
 async def on_command_error(ctx, error):
+    """Global error handler"""
     await logger.log_error(
         error, 
         f"Command Error in {ctx.command.name if ctx.command else 'Unknown Command'}", 
         f"User: {ctx.author.id}, Guild: {ctx.guild.id if ctx.guild else 'DM'}"
     )
+    
+    # Send user-friendly error message
     if isinstance(error, commands.CommandNotFound):
         await ctx.send("❌ Command not found. Use `!pikahelp` to see available commands.")
     elif isinstance(error, commands.MissingRequiredArgument):
@@ -269,50 +199,56 @@ async def on_command_error(ctx, error):
     else:
         await ctx.send("❌ An error occurred while processing your command.")
 
-@bot.event
-async def on_ready():
-    await logger.initialize()
-    print(f"Disk path: {DISK_PATH}, exists: {os.path.exists(DISK_PATH)}")
-    print(f"Files on disk: {os.listdir(DISK_PATH) if os.path.exists(DISK_PATH) else 'N/A'}")
-    print(f"Memory file exists: {os.path.exists(MEMORY_FILE)}")
-    print(f"Users in memory: {len(conversation_memory)}")
-    await logger.log_bot_event("Bot Started", f"Loaded {len(conversation_memory)} user memories")
-    print(f'{bot.user} connected!')
+# ─── PikaPoints Data ─────────────────────────────────────────────────
 
-# ─── AI Chat Command ───────────────────────────────────────────────────────
+# PikaPoints reward values
+JOURNAL_POINTS = 15
+PREFIXGAME_POINTS = 5
+UNSCRAMBLE_POINTS = 5
+
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def load_pikapoints():
+    if not os.path.exists(PIKA_FILE):
+        with open(PIKA_FILE, "w") as f:
+            json.dump({}, f)
+    with open(PIKA_FILE, "r") as f:
+        return json.load(f)
+
+def save_pikapoints(data: dict):
+    with open(PIKA_FILE, "w") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+
+pika_data = load_pikapoints()
+
+def get_user_record(guild_id: str, user_id: str):
+    """Ensure a record exists and return it."""
+    guild = pika_data.setdefault(guild_id, {})
+    return guild.setdefault(user_id, {
+        "points": 0,
+        "journal_submissions": 0,
+        "prefixgame_submissions": 0,
+        "unscramble_submissions": 0
+    })
+
+# ─── AI Chat Command ─────────────────────────────────────────────────
+
 @bot.command(name="chat")
 async def chat(ctx, *, prompt):
-    thinking = await ctx.send("Thinking...")
-    key = f"{ctx.guild.id}-{ctx.author.id}"
-    if key not in conversation_memory:
-        conversation_memory[key] = UserMemory()
-    mem = conversation_memory[key]
-
+    thinking_msg = await ctx.send("Thinking...")
+    user_key = f"{ctx.guild.id}-{ctx.author.id}"
+    
     try:
-        # Summarize if over limit
-        if len(mem.raw_messages) >= RAW_MESSAGE_LIMIT:
-            to_summ = [mem.raw_messages.popleft() for _ in range(MESSAGES_TO_SUMMARIZE) if mem.raw_messages]
-            if to_summ:
-                summ = await summarize_messages(to_summ, mem.user_context)
-                mem.summaries.append({
-                    "type": "summary",
-                    "content": summ,
-                    "count": len(to_summ),
-                    "time": datetime.datetime.utcnow().isoformat()
-                })
+        # Ensure memory for the user exists (session-only)
+        if user_key not in conversation_history:
+            conversation_history[user_key] = deque(maxlen=CONVERSATION_LIMIT)
 
-        # Build context
-        msgs = []
-        if mem.user_context:
-            msgs.append({"role": "user", "content": f"Known user context: {json.dumps(mem.user_context)}"})
-            msgs.append({"role": "assistant", "content": "Acknowledged user context."})
-        for s in mem.summaries:
-            msgs.append({"role": "user", "content": f"[Summary at {s['time']}]: {s['content']}"})
-            msgs.append({"role": "assistant", "content": "Remembering past summary."})
-        msgs.extend(mem.raw_messages)
-        msgs.append({"role": "user", "content": prompt})
-
-        system_prompt = """You are Pikabug, a generally blunt and edgy Discord companion, who can be emotionally intelligent when needed, in the Atypical Asylum server.
+        # Build messages for OpenAI
+        messages = [
+            {"role": "system", "content": """You are Pikabug, a generally blunt and edgy Discord companion, who can be emotionally intelligent when needed, in the Atypical Asylum server
 
 Your personality traits:
 - Add edgy humor updated for 2025 to the general discussion
@@ -337,88 +273,62 @@ Communication style:
 - Use uplifting, encouraging but calm language when a user seems upset
 - Skip the pleasantries and get to the point
 
-Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""
+Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""}
+        ]
+        
+        # Add conversation history
+        messages.extend(list(conversation_history[user_key]))
+        
+        # Add current message
+        messages.append({"role": "user", "content": prompt})
 
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[
-        {"role": "system", "content": "You are Pikabug, an edgy assistant who can be empathetic when needed."},
-        {"role": "user", "content": prompt}
-    ],
-    max_tokens=200,
-    temperature=0.8,
-)
-return response.choices[0].message.content
+        # Make OpenAI API call
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            max_tokens=1000,
+            temperature=0.8
+        )
 
-        mem.raw_messages.append({"role": "user", "content": prompt})
-        mem.raw_messages.append({"role": "assistant", "content": reply})
-        await update_user_context(key)
-        save_conversation_memory()
+        reply = response.choices[0].message.content
 
-        await thinking.edit(content=reply)
-        memory_info = f"Messages: {len(mem.raw_messages)}, Summaries: {len(mem.summaries)}"
+        # Save to session memory only (not to disk)
+        conversation_history[user_key].append({"role": "user", "content": prompt})
+        conversation_history[user_key].append({"role": "assistant", "content": reply})
+
+        await thinking_msg.edit(content=reply)
+        
+        # Log successful AI usage
+        await logger.log_ai_usage(
+            ctx.author.id, 
+            ctx.guild.id, 
+            len(prompt), 
+            len(reply), 
+            success=True
+        )
         await logger.log_command_usage(ctx, "chat", success=True, 
-            extra_info=f"Prompt: {prompt[:50]}... | Memory: {memory_info}")
+                                     extra_info=f"Prompt: {prompt[:100]}... | History: {len(conversation_history[user_key])} messages")
 
     except Exception as e:
         error_msg = f"⚠️ Error occurred: {str(e)}"
-        await thinking.edit(content=error_msg)
+        await thinking_msg.edit(content=error_msg)
         await logger.log_error(e, "AI Command Error", f"User: {ctx.author.id}, Prompt: {prompt[:100]}...")
         await logger.log_ai_usage(ctx.author.id, ctx.guild.id, len(prompt), 0, success=False)
 
-# ─── Memory Status Command ─────────────────────────────────────────────────
-@bot.command(name="memory")
-async def memory_status(ctx):
-    key = f"{ctx.guild.id}-{ctx.author.id}"
-    if key not in conversation_memory:
-        return await ctx.send("No memory found.")
-    mem = conversation_memory[key]
-    await ctx.send(
-        f"**Memory Status:**\n"
-        f"• Recent msgs: {len(mem.raw_messages)}/{RAW_MESSAGE_LIMIT}\n"
-        f"• Summaries: {len(mem.summaries)}/{MAX_SUMMARIES}\n"
-        f"• User facts: {len(mem.user_context)} items"
-    )
-
-# ─── PikaPoints Data ─────────────────────────────────────────────────
-JOURNAL_POINTS = 15
-PREFIXGAME_POINTS = 5
-UNSCRAMBLE_POINTS = 5
-
-def load_pikapoints():
-    if not os.path.exists(PIKA_FILE):
-        with open(PIKA_FILE, "w") as f:
-            json.dump({}, f)
-    with open(PIKA_FILE, "r") as f:
-        return json.load(f)
-
-def save_pikapoints(data: dict):
-    with open(PIKA_FILE, "w") as f:
-        json.dump(data, f)
-        f.flush()
-        os.fsync(f.fileno())
-
-pika_data = load_pikapoints()
-
-def get_user_record(guild_id: str, user_id: str):
-    guild = pika_data.setdefault(guild_id, {})
-    return guild.setdefault(user_id, {
-        "points": 0,
-        "journal_submissions": 0,
-        "prefixgame_submissions": 0,
-        "unscramble_submissions": 0
-    })
-
 # ─── Word Games ─────────────────────────────────────────────────
+
+# Load word list
 with open("words_alpha.txt", "r") as f:
     WORDS = set(line.strip().lower() for line in f)
 
+# Build prefix→words map
 prefix_map: Dict[str, List[str]] = defaultdict(list)
 for w in WORDS:
     if len(w) >= 3:
         p = w[:3]
         prefix_map[p].append(w)
 
+# Filter to "common" prefixes
 MIN_WORDS_PER_PREFIX = 5
 common_prefixes = [
     p for p, lst in prefix_map.items()
@@ -428,10 +338,12 @@ common_prefixes = [
 @bot.command(name="prefixgame")
 async def prefixgame(ctx):
     try:
+        # Pick and announce a prefix
         weights = [len(prefix_map[p]) for p in common_prefixes]
         current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
         await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
 
+        # Collect submissions
         submissions: Dict[discord.Member, str] = {}
         def check(m: discord.Message) -> bool:
             return (
@@ -456,6 +368,7 @@ async def prefixgame(ctx):
             await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info="No submissions")
             return
 
+        # Determine winner and award points
         winner, winning_word = max(submissions.items(), key=lambda kv: len(kv[1]))
         guild_id = str(ctx.guild.id)
         user_id = str(winner.id)
@@ -464,12 +377,15 @@ async def prefixgame(ctx):
         record["prefixgame_submissions"] += 1
         save_pikapoints(pika_data)
 
+        # Send results
         await ctx.send(
             f"🏆 **{winner.display_name}** wins with **{winning_word}** ({len(winning_word)} letters)!\n"
             f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
             f"• Total Points: **{record['points']}**\n"
             f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
         )
+        
+        # Log game result and points
         await logger.log_game_result("Prefix Game", winner.id, ctx.guild.id, f"Word: {winning_word}")
         await logger.log_points_award(winner.id, ctx.guild.id, PREFIXGAME_POINTS, "prefixgame", record["points"])
         await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info=f"Winner: {winner.display_name}")
@@ -478,7 +394,7 @@ async def prefixgame(ctx):
         await logger.log_error(e, "Prefix Game Error")
         await logger.log_command_usage(ctx, "prefixgame", success=False)
 
-        # ─── Journal System ─────────────────────────────────────────────────
+# ─── Journal System ─────────────────────────────────────────────────
 
 journal_prompts = [
     "What were your childhood career dreams/goals? How do they compare to what you want to do now?",
@@ -630,6 +546,35 @@ responses = {
         "Y'all hear somethin?",
     ]
 }
+
+# Support command functions with logging
+def create_support_command(command_name):
+    async def support_command(ctx):
+        try:
+            global_var_name = f"last_{command_name}_response"
+            if global_var_name not in globals():
+                globals()[global_var_name] = None
+            
+            available = responses[command_name]
+            
+            for _ in range(5):
+                msg = random.choice(available)
+                if msg != globals()[global_var_name]:
+                    break
+            
+            globals()[global_var_name] = msg
+            await ctx.send(msg)
+            await logger.log_command_usage(ctx, command_name, success=True)
+            
+        except Exception as e:
+            await logger.log_error(e, f"Support Command Error ({command_name})")
+            await logger.log_command_usage(ctx, command_name, success=False)
+    
+    return support_command
+
+# Create all support commands
+for cmd_name in responses.keys():
+    bot.command(name=cmd_name)(create_support_command(cmd_name))
 
 # ─── Unscramble Game ─────────────────────────────────────────────────
 
@@ -803,7 +748,7 @@ async def pikahelp_command(ctx):
 🧠 **Pikabug Commands**:
 
 `!pikahelp` - Show list of Pikabug's commands.
-`!chat` - Triggers AI chat with Pikabug. Trained to make you laugh or comfort you during tough times. His memory is up to 100 messages and he saves knowledge about you :)
+`!chat` - Triggers AI chat with Pikabug. Trained to make you laugh or comfort you during tough times. Memory lasts for current session only (up to 50 messages).
 `!journal` - Sends a journal prompt/question to answer to help with mindfulness. Submissions are rewarded with PikaPoints!
 `!write` - Submits your response to the journal prompt/question. Insert it before your answer.
 `!points` - View how many PikaPoints you get from activity submissions.
@@ -829,6 +774,13 @@ async def pikahelp_command(ctx):
         await logger.log_error(e, "Help Command Error")
         await logger.log_command_usage(ctx, "pikahelp", success=False)
 
-# ─── Bot Start ────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    bot.run(os.getenv("DISCORD_TOKEN"))
+# ─── Save Memory Function (removed as memory is session-only) ───────────────
+
+def save_conversation_memory():
+    """No longer saves to disk - memory is session-only"""
+    pass
+
+# ─── Bot Startup ─────────────────────────────────────────────────
+
+# Run the bot
+bot.run(os.getenv("DISCORD_TOKEN"))

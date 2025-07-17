@@ -9,7 +9,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 load_dotenv()
 from openai import OpenAI
-from collections import deque
+from collections import deque, defaultdict
 from typing import Dict, List
 from anthropic import Anthropic
 
@@ -146,25 +146,6 @@ logger = DiscordLogger(bot)
 # ─── Bot Events ─────────────────────────────────────────────────
 
 @bot.event
-async def on_ready():
-    """Bot startup event"""
-    await logger.initialize()
-    
-    # Add debug information
-    print(f"Disk path: {DISK_PATH}")
-    print(f"Disk exists: {os.path.exists(DISK_PATH)}")
-    if os.path.exists(DISK_PATH):
-        print(f"Files in disk: {os.listdir(DISK_PATH)}")
-    
-    # Check conversation history
-    history_file = os.path.join(DISK_PATH, "conversation_history.json")
-    print(f"History file exists: {os.path.exists(history_file)}")
-    print(f"Loaded {len(conversation_history)} user conversation histories")
-    
-    await logger.log_bot_event("Bot Started", f"Pikabug is online! Loaded {len(conversation_history)} user histories")
-    print(f'{bot.user} has connected to Discord!')
-
-@bot.event
 async def on_command_error(ctx, error):
     """Global error handler"""
     await logger.log_error(
@@ -202,31 +183,32 @@ async def chat(ctx, *, prompt):
         conversation_memory[key] = UserMemory()
     mem = conversation_memory[key]
 
-    # Summarize if over limit
-    if len(mem.raw_messages) >= RAW_MESSAGE_LIMIT:
-        to_summ = [mem.raw_messages.popleft() for _ in range(MESSAGES_TO_SUMMARIZE) if mem.raw_messages]
-        if to_summ:
-            summ = await summarize_messages(to_summ, mem.user_context)
-            mem.summaries.append({
-                "type": "summary",
-                "content": summ,
-                "count": len(to_summ),
-                "time": datetime.datetime.utcnow().isoformat()
-            })
-        
-# Build context
-    msgs = []
-    if mem.user_context:
-        msgs.append({"role": "user", "content": f"Known user context: {json.dumps(mem.user_context)}"})
-        msgs.append({"role": "assistant", "content": "Acknowledged user context."})
-    for s in mem.summaries:
-        msgs.append({"role": "user", "content": f"[Summary at {s['time']}]: {s['content']}"})
-        msgs.append({"role": "assistant", "content": "Remembering past summary."})
-    msgs.extend(mem.raw_messages)
-    msgs.append({"role": "user", "content": prompt})
-        
- # Your existing system prompt
-    system_prompt = """You are Pikabug, a generally blunt and edgy Discord companion, who can be emotionally intelligent when needed, in the Atypical Asylum server.
+    try:
+        # Summarize if over limit
+        if len(mem.raw_messages) >= RAW_MESSAGE_LIMIT:
+            to_summ = [mem.raw_messages.popleft() for _ in range(MESSAGES_TO_SUMMARIZE) if mem.raw_messages]
+            if to_summ:
+                summ = await summarize_messages(to_summ, mem.user_context)
+                mem.summaries.append({
+                    "type": "summary",
+                    "content": summ,
+                    "count": len(to_summ),
+                    "time": datetime.datetime.utcnow().isoformat()
+                })
+
+        # Build context
+        msgs = []
+        if mem.user_context:
+            msgs.append({"role": "user", "content": f"Known user context: {json.dumps(mem.user_context)}"})
+            msgs.append({"role": "assistant", "content": "Acknowledged user context."})
+        for s in mem.summaries:
+            msgs.append({"role": "user", "content": f"[Summary at {s['time']}]: {s['content']}"})
+            msgs.append({"role": "assistant", "content": "Remembering past summary."})
+        msgs.extend(mem.raw_messages)
+        msgs.append({"role": "user", "content": prompt})
+
+        # Your existing system prompt
+        system_prompt = """You are Pikabug, a generally blunt and edgy Discord companion, who can be emotionally intelligent when needed, in the Atypical Asylum server.
 
 Your personality traits:
 - Add edgy humor updated for 2025 to the general discussion
@@ -254,32 +236,31 @@ Communication style:
 Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""
 
         # Make API call to Claude
-    resp = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
-        max_tokens=1000,
-        temperature=0.8,
-        system=system_prompt,
-        messages=msgs
-    )
-    reply = resp.content[0].text
+        resp = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1000,
+            temperature=0.8,
+            system=system_prompt,
+            messages=msgs
+        )
+        reply = resp.content[0].text
 
-    # Save messages
-    mem.raw_messages.append({"role": "user", "content": prompt})
-    mem.raw_messages.append({"role": "assistant", "content": reply})
-    await update_user_context(key)
-    save_conversation_memory()
+        # Save messages
+        mem.raw_messages.append({"role": "user", "content": prompt})
+        mem.raw_messages.append({"role": "assistant", "content": reply})
+        await update_user_context(key)
+        save_conversation_memory()
 
-    await thinking.edit(content=reply)
-    # Logging omitted for brevity
-        
+        await thinking.edit(content=reply)
+        # Logging omitted for brevity
         # Include memory stats in log
-        memory_info = f"Messages: {len(memory.raw_messages)}, Summaries: {len(memory.summaries)}"
+        memory_info = f"Messages: {len(mem.raw_messages)}, Summaries: {len(mem.summaries)}"
         await logger.log_command_usage(ctx, "chat", success=True, 
             extra_info=f"Prompt: {prompt[:50]}... | Memory: {memory_info}")
 
     except Exception as e:
         error_msg = f"⚠️ Error occurred: {str(e)}"
-        await thinking_msg.edit(content=error_msg)
+        await thinking.edit(content=error_msg)
         await logger.log_error(e, "AI Command Error", f"User: {ctx.author.id}, Prompt: {prompt[:100]}...")
         await logger.log_ai_usage(ctx.author.id, ctx.guild.id, len(prompt), 0, success=False)
 

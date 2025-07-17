@@ -60,7 +60,7 @@ class DiscordLogger:
         embed.add_field(name="User", value=f"{ctx.author.mention} ({ctx.author.id})", inline=True)
         embed.add_field(name="Guild", value=f"{ctx.guild.name} ({ctx.guild.id})", inline=True)
         embed.add_field(name="Channel", value=f"#{ctx.channel.name} ({ctx.channel.id})", inline=True)
-        embed.add_field(name="Status", value=status, inline=False)
+        
         
         if extra_info:
             embed.add_field(name="Details", value=extra_info[:1024], inline=False)

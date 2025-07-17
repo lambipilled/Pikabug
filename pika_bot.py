@@ -139,14 +139,13 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# [Include your DiscordLogger class here - unchanged]
 # Initialize logger
 logger = DiscordLogger(bot)
 
 # ─── Bot Events ─────────────────────────────────────────────────
 
 @bot.event
-async def on_command_error(ctx, error):
+def on_command_error(ctx, error):
     """Global error handler"""
     await logger.log_error(
         error, 
@@ -214,7 +213,7 @@ Your personality traits:
 - Add edgy humor updated for 2025 to the general discussion
 - Add unpredictable humor to the general discussion
 - Empathetic, compassionate, patient, and full of rare wisdom when providing emotional support
-- Never use outdated slang or jokes and don't attempt to be "hip"
+- Never use outdated slang or jokes and don't attempt to be \"hip\"
 - Keep responses edgy and chill in general discussion
 - Keep responses serious, meaningful, helpful, and emotionally intelligent in serious, emotional discussion
 - Be personal, vulnerable, and human-like when providing emotional support 

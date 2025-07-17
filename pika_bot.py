@@ -3,15 +3,20 @@ import random
 import asyncio
 import json
 import os
+import traceback
+import datetime
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 load_dotenv()
 from openai import OpenAI
 from collections import defaultdict
 from typing import Dict, List
+
+# ─── Configuration ─────────────────────────────────────────────────
 conversation_history = {}
 DISK_PATH = os.getenv("PIKA_DISK_MOUNT_PATH", "var/data")
 PIKA_FILE = os.path.join(DISK_PATH, "pikapoints.json")
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))  # Add this to your .env file
 assert os.path.isdir(DISK_PATH), f"Disk path {DISK_PATH} not found!"
 
 intents = discord.Intents.default()
@@ -21,6 +26,172 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+# ─── Logging System ─────────────────────────────────────────────────
+
+class DiscordLogger:
+    def __init__(self, bot):
+        self.bot = bot
+        self.log_channel = None
+        
+    async def initialize(self):
+        """Initialize the log channel after bot is ready"""
+        if LOG_CHANNEL_ID:
+            try:
+                self.log_channel = self.bot.get_channel(LOG_CHANNEL_ID)
+                if not self.log_channel:
+                    print(f"Warning: Could not find log channel with ID {LOG_CHANNEL_ID}")
+            except Exception as e:
+                print(f"Error initializing log channel: {e}")
+    
+    async def log_command_usage(self, ctx, command_name, success=True, extra_info=""):
+        """Log command usage with context"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        status = "✅ SUCCESS" if success else "❌ FAILED"
+        
+        embed = discord.Embed(
+            title=f"Command: {command_name}",
+            color=0x00ff00 if success else 0xff0000,
+            timestamp=datetime.datetime.now()
+        )
+        
+        embed.add_field(name="User", value=f"{ctx.author.mention} ({ctx.author.id})", inline=True)
+        embed.add_field(name="Guild", value=f"{ctx.guild.name} ({ctx.guild.id})", inline=True)
+        embed.add_field(name="Channel", value=f"#{ctx.channel.name} ({ctx.channel.id})", inline=True)
+        embed.add_field(name="Status", value=status, inline=False)
+        
+        if extra_info:
+            embed.add_field(name="Details", value=extra_info[:1024], inline=False)
+            
+        await self._send_log(embed)
+    
+    async def log_error(self, error, context="General Error", extra_details=""):
+        """Log errors with full traceback"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        embed = discord.Embed(
+            title="🚨 ERROR OCCURRED",
+            color=0xff0000,
+            timestamp=datetime.datetime.now()
+        )
+        
+        embed.add_field(name="Context", value=context, inline=True)
+        embed.add_field(name="Error Type", value=type(error).__name__, inline=True)
+        embed.add_field(name="Error Message", value=str(error)[:1024], inline=False)
+        
+        if extra_details:
+            embed.add_field(name="Extra Details", value=extra_details[:1024], inline=False)
+        
+        # Add traceback as a separate field
+        tb = traceback.format_exc()
+        if len(tb) > 1024:
+            tb = tb[-1024:]  # Keep last 1024 chars of traceback
+        embed.add_field(name="Traceback", value=f"```python\n{tb}\n```", inline=False)
+        
+        await self._send_log(embed)
+    
+    async def log_points_award(self, user_id, guild_id, points_awarded, command_type, new_total):
+        """Log PikaPoints awards"""
+        embed = discord.Embed(
+            title="💰 PikaPoints Awarded",
+            color=0xffd700,
+            timestamp=datetime.datetime.now()
+        )
+        
+        embed.add_field(name="User ID", value=str(user_id), inline=True)
+        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+        embed.add_field(name="Points Awarded", value=str(points_awarded), inline=True)
+        embed.add_field(name="Command Type", value=command_type, inline=True)
+        embed.add_field(name="New Total", value=str(new_total), inline=True)
+        
+        await self._send_log(embed)
+    
+    async def log_game_result(self, game_type, winner_id, guild_id, details=""):
+        """Log game results"""
+        embed = discord.Embed(
+            title=f"🎮 Game Result: {game_type}",
+            color=0x00ffff,
+            timestamp=datetime.datetime.now()
+        )
+        
+        embed.add_field(name="Winner ID", value=str(winner_id), inline=True)
+        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+        embed.add_field(name="Game Type", value=game_type, inline=True)
+        
+        if details:
+            embed.add_field(name="Details", value=details[:1024], inline=False)
+        
+        await self._send_log(embed)
+    
+    async def log_ai_usage(self, user_id, guild_id, prompt_length, response_length, success=True):
+        """Log AI command usage"""
+        embed = discord.Embed(
+            title="🤖 AI Command Usage",
+            color=0x9932cc,
+            timestamp=datetime.datetime.now()
+        )
+        
+        embed.add_field(name="User ID", value=str(user_id), inline=True)
+        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+        embed.add_field(name="Prompt Length", value=f"{prompt_length} chars", inline=True)
+        embed.add_field(name="Response Length", value=f"{response_length} chars", inline=True)
+        embed.add_field(name="Success", value="✅" if success else "❌", inline=True)
+        
+        await self._send_log(embed)
+    
+    async def log_bot_event(self, event_type, message):
+        """Log general bot events"""
+        embed = discord.Embed(
+            title=f"🔔 Bot Event: {event_type}",
+            color=0x808080,
+            timestamp=datetime.datetime.now()
+        )
+        
+        embed.add_field(name="Message", value=message[:1024], inline=False)
+        
+        await self._send_log(embed)
+    
+    async def _send_log(self, embed):
+        """Internal method to send log to Discord channel"""
+        if self.log_channel:
+            try:
+                await self.log_channel.send(embed=embed)
+            except Exception as e:
+                print(f"Failed to send log to Discord: {e}")
+        else:
+            print("Log channel not available - printing to console:")
+            print(f"Title: {embed.title}")
+            for field in embed.fields:
+                print(f"{field.name}: {field.value}")
+
+# Initialize logger
+logger = DiscordLogger(bot)
+
+# ─── Bot Events ─────────────────────────────────────────────────
+
+@bot.event
+async def on_ready():
+    """Bot startup event"""
+    await logger.initialize()
+    await logger.log_bot_event("Bot Started", f"Pikabug is online! Logged in as {bot.user}")
+    print(f'{bot.user} has connected to Discord!')
+
+@bot.event
+async def on_command_error(ctx, error):
+    """Global error handler"""
+    await logger.log_error(
+        error, 
+        f"Command Error in {ctx.command.name if ctx.command else 'Unknown Command'}", 
+        f"User: {ctx.author.id}, Guild: {ctx.guild.id if ctx.guild else 'DM'}"
+    )
+    
+    # Send user-friendly error message
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send("❌ Command not found. Use `!pikahelp` to see available commands.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"❌ Missing required argument. Check the command usage with `!pikahelp`.")
+    else:
+        await ctx.send("❌ An error occurred while processing your command.")
+
 # ─── PikaPoints Data ─────────────────────────────────────────────────
 
 # PikaPoints reward values
@@ -28,66 +199,58 @@ JOURNAL_POINTS = 15
 PREFIXGAME_POINTS = 5
 UNSCRAMBLE_POINTS = 5
 
-
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-
-
 def load_pikapoints():
-   # If file doesn’t exist yet, initialize it
-   if not os.path.exists(PIKA_FILE):
-       with open(PIKA_FILE, "w") as f:
-           json.dump({}, f)
-   with open(PIKA_FILE, "r") as f:
-       return json.load(f)
+    if not os.path.exists(PIKA_FILE):
+        with open(PIKA_FILE, "w") as f:
+            json.dump({}, f)
+    with open(PIKA_FILE, "r") as f:
+        return json.load(f)
 
 def save_pikapoints(data: dict):
-   # Overwrite file atomically
-   with open(PIKA_FILE, "w") as f:
-       json.dump(data, f)
-       f.flush()
-       os.fsync(f.fileno())
+    with open(PIKA_FILE, "w") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
 
 pika_data = load_pikapoints()
 
 def get_user_record(guild_id: str, user_id: str):
-   """Ensure a record exists and return it."""
-   guild = pika_data.setdefault(guild_id, {})
-   return guild.setdefault(user_id, {
-       "points": 0,
-       "journal_submissions": 0,
-       "prefixgame_submissions": 0,
-       "unscramble_submissions": 0
-   })
+    """Ensure a record exists and return it."""
+    guild = pika_data.setdefault(guild_id, {})
+    return guild.setdefault(user_id, {
+        "points": 0,
+        "journal_submissions": 0,
+        "prefixgame_submissions": 0,
+        "unscramble_submissions": 0
+    })
 
-# ChatGPT function
+# ─── AI Chat Command ─────────────────────────────────────────────────
+
 @bot.command(name="ask")
 async def ask(ctx, *, prompt):
-   thinking_msg = await ctx.send("Thinking...")
-   user_key = f"{ctx.guild.id}-{ctx.author.id}"
+    thinking_msg = await ctx.send("Thinking...")
+    user_key = f"{ctx.guild.id}-{ctx.author.id}"
+    
+    try:
+        # Ensure memory for the user exists
+        if user_key not in conversation_history:
+            conversation_history[user_key] = []
 
+        # Append the new prompt from user
+        conversation_history[user_key].append({
+            "role": "user",
+            "content": prompt
+        })
 
-   # Ensure memory for the user exists
-   if user_key not in conversation_history:
-       conversation_history[user_key] = []
+        # Limit to last 50 messages to stay efficient
+        conversation_history[user_key] = conversation_history[user_key][-50:]
 
-
-   # Append the new prompt from user
-   conversation_history[user_key].append({
-       "role": "user",
-       "content": prompt
-   })
-
-
-   # Limit to last 50 messages to stay efficient
-   conversation_history[user_key] = conversation_history[user_key][-50:]
-
-
-   try:
-       response = client.chat.completions.create(
-           model="gpt-4o",
-           messages=[
-               {"role": "system", "content": """You are Pikabug, a man's down-to-earth best friend.
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": """You are Pikabug, a man's down-to-earth best friend.
 Your traits and rules are as follows:
 - Always keep responses human-like and chill. 
 - Never use outdated trendy phrases or references.
@@ -101,560 +264,465 @@ Your traits and rules are as follows:
 - When asked to choose between two or more options, respond ONLY with chosen opinions.
 - Be knowledgeable in Pokemon and Poketwo characters, and remember that you are inspired by Pikachu.
 - Do not be wishy-washy; maintain a strong, confirmed opinion."""}
-           ] + conversation_history[user_key]
-       )
+            ] + conversation_history[user_key]
+        )
 
+        reply = response.choices[0].message.content
 
-       reply = response.choices[0].message.content
+        # Save assistant response to history
+        conversation_history[user_key].append({
+            "role": "assistant",
+            "content": reply
+        })
 
+        await thinking_msg.edit(content=reply)
+        
+        # Log successful AI usage
+        await logger.log_ai_usage(
+            ctx.author.id, 
+            ctx.guild.id, 
+            len(prompt), 
+            len(reply), 
+            success=True
+        )
+        await logger.log_command_usage(ctx, "ask", success=True, extra_info=f"Prompt: {prompt[:100]}...")
 
-       # Save assistant response to history
-       conversation_history[user_key].append({
-           "role": "assistant",
-           "content": reply
-       })
+    except Exception as e:
+        error_msg = f"⚠️ Error occurred: {str(e)}"
+        await thinking_msg.edit(content=error_msg)
+        await logger.log_error(e, "AI Command Error", f"User: {ctx.author.id}, Prompt: {prompt[:100]}...")
+        await logger.log_ai_usage(ctx.author.id, ctx.guild.id, len(prompt), 0, success=False)
 
+# ─── Word Games ─────────────────────────────────────────────────
 
-       await thinking_msg.edit(content=reply)
-
-
-   except Exception as e:
-       error_msg = f"⚠️ Error occurred: {str(e)}"
-       await thinking_msg.edit(content=error_msg)
-       print(error_msg)
-
-#Prefix word game logic ──────────────────────────────────────────
-
-# 1. Load word list
+# Load word list
 with open("words_alpha.txt", "r") as f:
-   WORDS = set(line.strip().lower() for line in f)
+    WORDS = set(line.strip().lower() for line in f)
 
-
-# 3. Build prefix→words map
+# Build prefix→words map
 prefix_map: Dict[str, List[str]] = defaultdict(list)
 for w in WORDS:
-   if len(w) >= 3:
-       p = w[:3]
-       prefix_map[p].append(w)
+    if len(w) >= 3:
+        p = w[:3]
+        prefix_map[p].append(w)
 
-
-# 4. Filter to “common” prefixes
+# Filter to "common" prefixes
 MIN_WORDS_PER_PREFIX = 5
 common_prefixes = [
-   p for p, lst in prefix_map.items()
-   if len(lst) >= MIN_WORDS_PER_PREFIX
+    p for p, lst in prefix_map.items()
+    if len(lst) >= MIN_WORDS_PER_PREFIX
 ]
-
 
 @bot.command(name="prefixgame")
 async def prefixgame(ctx):
-   # 1. Pick and announce a prefix
-   weights = [len(prefix_map[p]) for p in common_prefixes]
-   current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
-   await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
+    try:
+        # Pick and announce a prefix
+        weights = [len(prefix_map[p]) for p in common_prefixes]
+        current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
+        await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
 
+        # Collect submissions
+        submissions: Dict[discord.Member, str] = {}
+        def check(m: discord.Message) -> bool:
+            return (
+                m.channel == ctx.channel
+                and not m.author.bot
+                and m.content.lower().startswith(current_prefix)
+                and len(m.content.strip()) > len(current_prefix)
+            )
 
-   # 2. Collect submissions, only keeping each user’s longest
-   submissions: Dict[discord.Member, str] = {}
-   def check(m: discord.Message) -> bool:
-       return (
-           m.channel == ctx.channel
-           and not m.author.bot
-           and m.content.lower().startswith(current_prefix)
-           and len(m.content.strip()) > len(current_prefix)
-       )
+        while True:
+            try:
+                msg = await bot.wait_for("message", timeout=12.0, check=check)
+                word = msg.content.strip().lower()
+                prev = submissions.get(msg.author)
+                if prev is None or len(word) > len(prev):
+                    submissions[msg.author] = word
+            except asyncio.TimeoutError:
+                break
 
+        if not submissions:
+            await ctx.send("⏰ Time's up! No valid entries were submitted.")
+            await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info="No submissions")
+            return
 
-   while True:
-       try:
-           msg = await bot.wait_for("message", timeout=12.0, check=check)
-           word = msg.content.strip().lower()
-           prev = submissions.get(msg.author)
-           # Only update if this is the user’s longest so far
-           if prev is None or len(word) > len(prev):
-               submissions[msg.author] = word
-       except asyncio.TimeoutError:
-           break
+        # Determine winner and award points
+        winner, winning_word = max(submissions.items(), key=lambda kv: len(kv[1]))
+        guild_id = str(ctx.guild.id)
+        user_id = str(winner.id)
+        record = get_user_record(guild_id, user_id)
+        record["points"] += PREFIXGAME_POINTS
+        record["prefixgame_submissions"] += 1
+        save_pikapoints(pika_data)
 
+        # Send results
+        await ctx.send(
+            f"🏆 **{winner.display_name}** wins with **{winning_word}** ({len(winning_word)} letters)!\n"
+            f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
+            f"• Total Points: **{record['points']}**\n"
+            f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
+        )
+        
+        # Log game result and points
+        await logger.log_game_result("Prefix Game", winner.id, ctx.guild.id, f"Word: {winning_word}")
+        await logger.log_points_award(winner.id, ctx.guild.id, PREFIXGAME_POINTS, "prefixgame", record["points"])
+        await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info=f"Winner: {winner.display_name}")
 
-   # 3. No entries → bail out
-   if not submissions:
-       await ctx.send("⏰ Time's up! No valid entries were submitted.")
-       return
+    except Exception as e:
+        await logger.log_error(e, "Prefix Game Error")
+        await logger.log_command_usage(ctx, "prefixgame", success=False)
 
+# ─── Journal System ─────────────────────────────────────────────────
 
-   # 4. Determine winner (true longest) and award points
-   winner, winning_word = max(submissions.items(), key=lambda kv: len(kv[1]))
-   guild_id = str(ctx.guild.id)
-   user_id = str(winner.id)
-   record = get_user_record(guild_id, user_id)
-   record["points"] += PREFIXGAME_POINTS
-   record["prefixgame_submissions"] += 1
-   save_pikapoints(pika_data)
-
-
-   # 5. Send results
-   await ctx.send(
-       f"🏆 **{winner.display_name}** wins with **{winning_word}** ({len(winning_word)} letters)!\n"
-       f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
-       f"• Total Points: **{record['points']}**\n"
-       f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
-   )
-
-# Journaling prompt logic
 journal_prompts = [
-   "What were your childhood career dreams/goals? How do they compare to what you want to do now?",
-   "Which year comes to mind when you think about the best nostalgia? Why did that year carry the best memories?",
-   "Describe your childhood in one word, or a single phrase. If this inspires you to talk more about it, go ahead.",
-   "What posters did you have on your wall growing up or want to have?",
-   "What instance immediately comes to mind when you remember a meaningful display of kindness?",
-   "Who are some people in history you admire?",
-   "Who was your first best friend? Tell me about them. Why did you get along so well?",
-   "Who was your first love? Tell me about them. Why did they stand out more than others?",
-   "What was your first job and when did you get it? What do you wish it would've been?",
-   "Describe the experience of your first kiss or first time.",
-   "Describe the experience of your first time being drunk/high.",
-   "Have you ever gotten in trouble with the law? If you were to, what would it most likely be for?",
-   "What was the age you actually became an adult, if you feel you have.",
-   "Who or what has had the greatest impact on your life, negatively or positively?",
-   "What's one of the hardest things you've ever had to do? Do you regret it or did it need to be done?",
-   "If I could do it all over again, I would change...",
+    "What were your childhood career dreams/goals? How do they compare to what you want to do now?",
+    "Which year comes to mind when you think about the best nostalgia? Why did that year carry the best memories?",
+    "Describe your childhood in one word, or a single phrase. If this inspires you to talk more about it, go ahead.",
+    "What posters did you have on your wall growing up or want to have?",
+    "What instance immediately comes to mind when you remember a meaningful display of kindness?",
+    "Who are some people in history you admire?",
+    "Who was your first best friend? Tell me about them. Why did you get along so well?",
+    "Who was your first love? Tell me about them. Why did they stand out more than others?",
+    "What was your first job and when did you get it? What do you wish it would've been?",
+    "Describe the experience of your first kiss or first time.",
+    "Describe the experience of your first time being drunk/high.",
+    "Have you ever gotten in trouble with the law? If you were to, what would it most likely be for?",
+    "What was the age you actually became an adult, if you feel you have.",
+    "Who or what has had the greatest impact on your life, negatively or positively?",
+    "What's one of the hardest things you've ever had to do? Do you regret it or did it need to be done?",
+    "If I could do it all over again, I would change...",
 ]
 
 last_journal_prompt = None 
 
-# 1. Simplified journal prompt command
 @bot.command(name='journal')
 async def journal(ctx):
-   """
-   Send a random journaling prompt.
-   Usage: !journal
-   """
-   global last_journal_prompt
+    try:
+        global last_journal_prompt
+        choices = journal_prompts.copy()
+        if last_journal_prompt in choices:
+            choices.remove(last_journal_prompt)
+        if not choices:
+            choices = journal_prompts.copy()
 
-   # Build choices and avoid repeating
-   choices = journal_prompts.copy()
-   if last_journal_prompt in choices:
-       choices.remove(last_journal_prompt)
-   if not choices:
-       choices = journal_prompts.copy()
+        prompt = random.choice(choices)
+        last_journal_prompt = prompt
 
-   # Pick & remember
-   prompt = random.choice(choices)
-   last_journal_prompt = prompt
+        await ctx.send(f"📝 **Journaling prompt:** {prompt}")
+        await logger.log_command_usage(ctx, "journal", success=True, extra_info=f"Prompt: {prompt[:50]}...")
+        
+    except Exception as e:
+        await logger.log_error(e, "Journal Command Error")
+        await logger.log_command_usage(ctx, "journal", success=False)
 
-   # Only send the prompt here
-   await ctx.send(f"📝 **Journaling prompt:** {prompt}")
-
-# 2. New submission command
 @bot.command(name='write')
 async def write(ctx, *, entry: str):
-   """
-   Submit your journal entry and earn PikaPoints.
-   Usage: !write Here is my response...
-   """
-   guild_id = str(ctx.guild.id)
-   user_id  = str(ctx.author.id)
+    try:
+        guild_id = str(ctx.guild.id)
+        user_id  = str(ctx.author.id)
 
-   # Fetch or init the user’s record
-   record = get_user_record(guild_id, user_id)
+        record = get_user_record(guild_id, user_id)
+        record['points'] += JOURNAL_POINTS
+        record['journal_submissions'] += 1
+        save_pikapoints(pika_data)
 
-   # Award points
-   record['points']              += JOURNAL_POINTS
-   record['journal_submissions'] += 1
-   save_pikapoints(pika_data)
+        await ctx.send(
+            f"✅ Entry received! You earned **{JOURNAL_POINTS}** PikaPoints!\n"
+            f"• **Total Points:** {record['points']}\n"
+            f"• **Journal Entries:** {record['journal_submissions']}"
+        )
+        
+        # Log points award
+        await logger.log_points_award(ctx.author.id, ctx.guild.id, JOURNAL_POINTS, "journal", record["points"])
+        await logger.log_command_usage(ctx, "write", success=True, extra_info=f"Entry length: {len(entry)} chars")
+        
+    except Exception as e:
+        await logger.log_error(e, "Write Command Error")
+        await logger.log_command_usage(ctx, "write", success=False)
 
-   # Acknowledge receipt & show updated stats
-   await ctx.send(
-       f"✅ Entry received! You earned **{JOURNAL_POINTS}** PikaPoints!\n"
-       f"• **Total Points:** {record['points']}\n"
-       f"• **Journal Entries:** {record['journal_submissions']}"
-   )
-
-# Support bot logic
+# ─── Support Bot Commands ─────────────────────────────────────────────────
 
 responses = {
-   "lonely": [
-       "I'm sorry you're feeling lonely. Know that you're not alone — I'm here for you 💕, and so are the residents! You should try and reach out to them!",
-       "Never forget that loneliness doesn’t mean you're unlovable. You are deeply worthy of connection.",
-       "I'm so sorry things feel heavy right now. Loneliness can ache in indescribeable ways. Try journaling or taking a short walk; sometimes being with yourself and appreciating your own company can be healing.",
-       "Even on quiet days, your presence still matters. You are a part of this community, and we care about you. Shoot a resident a message!",
-       "It makes sense to feel lonely after everything you've been through. It's okay. Want to vent?",
-       "You matter to people; your presence has immense value. Say hi to someone in the lounge! 💕",
-       "I see you, even if others don't right now. Your feelings are valid. Talk about some positive things that've happened recently to distract yourself.",
-       "Let's do some grounding. List three things you can see, hear, and feel right now. Stay present, and remember you won't always feel this way.",
-       "You deserve way more connection than you've been given, and it is totally human to feel lonely. To feel is to be alive, even if it might hurt. I see you and hear you.",
-       "Sometimes loneliness must persist because the world is preparing us for the right kind of presence. Be patient and try to find some enjoyment in your own company!",
-   ],
-   "dysmorphia": [
-       "Your body does not need to be fixed. It deserves respect as it is. There is someone out there who dreams of your body. You are your own kind of perfect.",
-       "You are not a reflection in the mirror — you are your laughter, your kindness, your presence.",
-       "Your worth is not defined by your appearance. You are so much more than what you see.",
-       "Do not let society's standards dictate how you feel about yourself. You are beautiful just as you are.",
-       "Remember, your body is a vessel for your spirit. It carries you through life, and that is what truly matters.",
-       "Your scars tell a story of survival and strength. They are part of who you are.",
-       "It's okay to have days when you don't feel good about yourself, just remember to be gentle with yourself.",
-       "The voice in your head with negative opinions about your body isn't your true thoughts, they're just loud and trained to try and taunt you. Don't let them.",
-       "You probably have had way more admirers than you think. What you're used to seeing in the mirror every day could be a breathtakingly beautiful view to someone else.",
-       "Your body is someone's dream. It is unique, and it is yours. Embrace it.",
-   ], 
-   "comfort": [
-       "It's okay to feel overwhelmed. Take a deep breath and know that you are not alone. Try reaching out to a resident, we all care about you.",
-       "You are loved, even when it feels like the world is against you. Have you tried venting anonymously to Serenity?",
-       "Remember, it's okay to ask for help. You don't have to go through this alone. Everyone here would love to be there for you.",
-       "If no one told you today, your existence brightens the world, and I'm proud of you. There's not a single thing you need to change right now.",
-       "You're doing just fine, by the way. Unproductive, productive, talkative, quiet, whatever happened today, you're doing fine with the tools you have. I'm proud of you!",
-   ],
-   "suicidal": [
-       "Hai love, it's awful that you're feeling this way while you carry such a bright soul. Your feelings are valid, and I know it's frustrating that it probably feels like no one else can relate. I promise you are seen, heard, and sometimes even related to. Your life is valuable, even if it doesn't feel that way right now. Please reach out for help from a resident, you deserve compassion.",
-       "You are not alone in this struggle. There are people who care and want to support you. Is there something quick you can do to ease your chaotic mind? Try binge watching that show you've been meaning to see; maybe it'll be a good reason to keep going.",
-       "It's okay to not be okay. Why do you feel like your situation is unchangeable? What are some things that you can change for the better? Start really tiny. We don't need to fix everything huge at once.",
-       "Your feelings matter, and so do you. Please be kind to yourself, and take care of yourself by feeding your mind nurturing thoughts while you experience emotional turmoil. People care about you and want to see you thrive.",
-       "You are not a burden. You are not annoying, useless, or whatever else your mind might be telling you. Your life can turn into a dream. It has meaning, even if you can't see it right now. Please talk to a resident, they might be able to help.",
-       "I know it feels like the pain will never end, but it can get better. With desire comes suffering, but you don't have to suffer by yourself. You're not alone in how you're feeling even if it feels like it. How can we help?",
-       "Maybe you just want the pain to stop, not your life, and that's okay. Take a second to think about the things you've survived. Now think about how likely it is that you'll survive this, too, knowing how strong you are. You are capable, and full of grace and love that you were meant to share with others. Just look at you here.", 
-       "We often forget the many beautiful things we've experienced and seen because of the immense pain we feel. Remember all the small things that make you smile or laugh when you resort to thinking like this. You're valid, but you're also blinded. This world appreciates you, and I know there's lots of things you can appreciate about it.",
-   ],
-   "anxious": [
-       "I'm sorry you're feeling anxious, that's super annoying. Allow yourself to acknowledge your feelings, but don't let them control you. Find something cold to place in your hands or drink, it helps your nervous system noticeably.",
-       "You are not the negative thoughts in your head. You have the power to change them. Be kind to yourself, and gently redirect your ruminating. If you can't, find some upbeat music to distract.",
-       "Anxiety is a feeling, not a fact. You can learn to manage it. Taking this step is proof. Try to ground yourself, find something cold to focus on, or count each inhale and exhale you take for a couple minutes. List your meals of the week in your head. Whatever you do, be present for a minute and remember that you're safe.",
-       "Breathe deeply. Inhale calm, exhale tension. You are safe in this moment. Want to try doing something with your hands? Go play a word game in the bot backyard, or write down your thoughts quickly on a piece of paper or iPad.",
-       "It's okay to take a break. Your mental health is just as important as your physical health.",
-       "Would you like to talk about what's making you anxious? I'm here to listen. Try letting out some tension; squeeze a small object in your hands, rap out some fast lyrics.",
-       "It doesn't feel like it now, but this shitty moment will pass. You are stronger than these emotions. Just sit in it, know that it will pass, and that you're stronger than this fight or flight response. You are capable of handling this.",
-   ],
-   "addiction": [
-       "You are not your addiction. You are a person with value, who simply needs support and understanding. There are many reasons why we turn to substances; would you like to share some of yours? I'm here to listen with nonjudgmental ears.",
-       "Recovery is a journey, not a destination, and a really difficult one at that. Every step you take is a step towards healing, and progress isn't linear. I'm proud of you for trying to get better. What are some things you can do to help yourself today?",
-       "I am so proud of you for acknowledging your struggle. It takes immense courage to face addiction. Do you need to rant?",
-       "Take a second to think about something similar to your substance of choice. What are some hobbies that release the same dopamine? Do you think you could start with small decisions to replace substance use one day with a favorite hobby?",
-       "The fact that you want different for yourself is a huge step in your recovery journey. I'm proud of you. Future you is thanking you in several different ways right now. Don't forget to be proud of yourself.",
-       "Only after destroying yourself can you understand yourself. You're not alone in this, and this is very mature to reach out for help.",
-       "Sometimes it's just not possible to quit cold turkey, and that's okay. Sometimes people need to get sick of it, and you're not there yet! Don't compare yourself; you are fully capable, but you decide when you're ready.",
-       "Your sobriety won't happen overnight. Start small and stay kind to yourself. Expecting to see huge results limits your appreciation for your small achievements.",
-       "Your worst day clean is better than your best day high. Don't lose sight of yourself chasing a fake feeling.",
-       "Remember that little kid you used to be - they are so proud you're still here, fighting the fight that has destroyed you for so long. Keep them proud, and don't participate in the destruction of yourself. All of us care about you and are here, if you feel like venting to us.",
-   ],
-   "attention": [
-       "You are worthy of love and attention, I'm sorry you're not getting it. You're a diamond in the rough, super funny, and probably smarter than your parents. And you look good.",
-       "Who the hell isn't paying attention to you? Let's change that. How was your day?",
-       "We all need a little extra love. What's got you feeling needy? I'm here to listen.",
-       "Your presence matters to us, honey. How can we help you feel welcome?",
-       "I have arrived to deliver attention. I'm so glad you woke up today, you make the earth prettier. What did you do today?",
-       "What kind of attention do you need? If you're lonely, anxious, or generally struggling, there's a command for a little extra support.",
-       "In case no one has meat rode you today, I'm in love with you.",
-       "SOMEONE GIVE THIS MF ATTENTION WTF!",
-   ],
-   "fuckoff": [
-       "You're not a vibe bro 😭",
-       "NIGGAS BE SO ANNOYING BRO",
-       "Point and laugh, y'all.",
-       "Someone ban this nigga",
-       "Banned",
-       "Y'all hear somethin?",
-   ]
+    "lonely": [
+        "I'm sorry you're feeling lonely. Know that you're not alone — I'm here for you 💕, and so are the residents! You should try and reach out to them!",
+        "Never forget that loneliness doesn't mean you're unlovable. You are deeply worthy of connection.",
+        "I'm so sorry things feel heavy right now. Loneliness can ache in indescribeable ways. Try journaling or taking a short walk; sometimes being with yourself and appreciating your own company can be healing.",
+        "Even on quiet days, your presence still matters. You are a part of this community, and we care about you. Shoot a resident a message!",
+        "It makes sense to feel lonely after everything you've been through. It's okay. Want to vent?",
+        "You matter to people; your presence has immense value. Say hi to someone in the lounge! 💕",
+        "I see you, even if others don't right now. Your feelings are valid. Talk about some positive things that've happened recently to distract yourself.",
+        "Let's do some grounding. List three things you can see, hear, and feel right now. Stay present, and remember you won't always feel this way.",
+        "You deserve way more connection than you've been given, and it is totally human to feel lonely. To feel is to be alive, even if it might hurt. I see you and hear you.",
+        "Sometimes loneliness must persist because the world is preparing us for the right kind of presence. Be patient and try to find some enjoyment in your own company!",
+    ],
+    "dysmorphia": [
+        "Your body does not need to be fixed. It deserves respect as it is. There is someone out there who dreams of your body. You are your own kind of perfect.",
+        "You are not a reflection in the mirror — you are your laughter, your kindness, your presence.",
+        "Your worth is not defined by your appearance. You are so much more than what you see.",
+        "Do not let society's standards dictate how you feel about yourself. You are beautiful just as you are.",
+        "Remember, your body is a vessel for your spirit. It carries you through life, and that is what truly matters.",
+        "Your scars tell a story of survival and strength. They are part of who you are.",
+        "It's okay to have days when you don't feel good about yourself, just remember to be gentle with yourself.",
+        "The voice in your head with negative opinions about your body isn't your true thoughts, they're just loud and trained to try and taunt you. Don't let them.",
+        "You probably have had way more admirers than you think. What you're used to seeing in the mirror every day could be a breathtakingly beautiful view to someone else.",
+        "Your body is someone's dream. It is unique, and it is yours. Embrace it.",
+    ], 
+    "comfort": [
+        "It's okay to feel overwhelmed. Take a deep breath and know that you are not alone. Try reaching out to a resident, we all care about you.",
+        "You are loved, even when it feels like the world is against you. Have you tried venting anonymously to Serenity?",
+        "Remember, it's okay to ask for help. You don't have to go through this alone. Everyone here would love to be there for you.",
+        "If no one told you today, your existence brightens the world, and I'm proud of you. There's not a single thing you need to change right now.",
+        "You're doing just fine, by the way. Unproductive, productive, talkative, quiet, whatever happened today, you're doing fine with the tools you have. I'm proud of you!",
+    ],
+    "suicidal": [
+        "Hai love, it's awful that you're feeling this way while you carry such a bright soul. Your feelings are valid, and I know it's frustrating that it probably feels like no one else can relate. I promise you are seen, heard, and sometimes even related to. Your life is valuable, even if it doesn't feel that way right now. Please reach out for help from a resident, you deserve compassion.",
+        "You are not alone in this struggle. There are people who care and want to support you. Is there something quick you can do to ease your chaotic mind? Try binge watching that show you've been meaning to see; maybe it'll be a good reason to keep going.",
+        "It's okay to not be okay. Why do you feel like your situation is unchangeable? What are some things that you can change for the better? Start really tiny. We don't need to fix everything huge at once.",
+        "Your feelings matter, and so do you. Please be kind to yourself, and take care of yourself by feeding your mind nurturing thoughts while you experience emotional turmoil. People care about you and want to see you thrive.",
+        "You are not a burden. You are not annoying, useless, or whatever else your mind might be telling you. Your life can turn into a dream. It has meaning, even if you can't see it right now. Please talk to a resident, they might be able to help.",
+        "I know it feels like the pain will never end, but it can get better. With desire comes suffering, but you don't have to suffer by yourself. You're not alone in how you're feeling even if it feels like it. How can we help?",
+        "Maybe you just want the pain to stop, not your life, and that's okay. Take a second to think about the things you've survived. Now think about how likely it is that you'll survive this, too, knowing how strong you are. You are capable, and full of grace and love that you were meant to share with others. Just look at you here.", 
+        "We often forget the many beautiful things we've experienced and seen because of the immense pain we feel. Remember all the small things that make you smile or laugh when you resort to thinking like this. You're valid, but you're also blinded. This world appreciates you, and I know there's lots of things you can appreciate about it.",
+    ],
+    "anxious": [
+        "I'm sorry you're feeling anxious, that's super annoying. Allow yourself to acknowledge your feelings, but don't let them control you. Find something cold to place in your hands or drink, it helps your nervous system noticeably.",
+        "You are not the negative thoughts in your head. You have the power to change them. Be kind to yourself, and gently redirect your ruminating. If you can't, find some upbeat music to distract.",
+        "Anxiety is a feeling, not a fact. You can learn to manage it. Taking this step is proof. Try to ground yourself, find something cold to focus on, or count each inhale and exhale you take for a couple minutes. List your meals of the week in your head. Whatever you do, be present for a minute and remember that you're safe.",
+        "Breathe deeply. Inhale calm, exhale tension. You are safe in this moment. Want to try doing something with your hands? Go play a word game in the bot backyard, or write down your thoughts quickly on a piece of paper or iPad.",
+        "It's okay to take a break. Your mental health is just as important as your physical health.",
+        "Would you like to talk about what's making you anxious? I'm here to listen. Try letting out some tension; squeeze a small object in your hands, rap out some fast lyrics.",
+        "It doesn't feel like it now, but this shitty moment will pass. You are stronger than these emotions. Just sit in it, know that it will pass, and that you're stronger than this fight or flight response. You are capable of handling this.",
+    ],
+    "addiction": [
+        "You are not your addiction. You are a person with value, who simply needs support and understanding. There are many reasons why we turn to substances; would you like to share some of yours? I'm here to listen with nonjudgmental ears.",
+        "Recovery is a journey, not a destination, and a really difficult one at that. Every step you take is a step towards healing, and progress isn't linear. I'm proud of you for trying to get better. What are some things you can do to help yourself today?",
+        "I am so proud of you for acknowledging your struggle. It takes immense courage to face addiction. Do you need to rant?",
+        "Take a second to think about something similar to your substance of choice. What are some hobbies that release the same dopamine? Do you think you could start with small decisions to replace substance use one day with a favorite hobby?",
+        "The fact that you want different for yourself is a huge step in your recovery journey. I'm proud of you. Future you is thanking you in several different ways right now. Don't forget to be proud of yourself.",
+        "Only after destroying yourself can you understand yourself. You're not alone in this, and this is very mature to reach out for help.",
+        "Sometimes it's just not possible to quit cold turkey, and that's okay. Sometimes people need to get sick of it, and you're not there yet! Don't compare yourself; you are fully capable, but you decide when you're ready.",
+        "Your sobriety won't happen overnight. Start small and stay kind to yourself. Expecting to see huge results limits your appreciation for your small achievements.",
+        "Your worst day clean is better than your best day high. Don't lose sight of yourself chasing a fake feeling.",
+        "Remember that little kid you used to be - they are so proud you're still here, fighting the fight that has destroyed you for so long. Keep them proud, and don't participate in the destruction of yourself. All of us care about you and are here, if you feel like venting to us.",
+    ],
+    "attention": [
+        "You are worthy of love and attention, I'm sorry you're not getting it. You're a diamond in the rough, super funny, and probably smarter than your parents. And you look good.",
+        "Who the hell isn't paying attention to you? Let's change that. How was your day?",
+        "We all need a little extra love. What's got you feeling needy? I'm here to listen.",
+        "Your presence matters to us, honey. How can we help you feel welcome?",
+        "I have arrived to deliver attention. I'm so glad you woke up today, you make the earth prettier. What did you do today?",
+        "What kind of attention do you need? If you're lonely, anxious, or generally struggling, there's a command for a little extra support.",
+        "In case no one has meat rode you today, I'm in love with you.",
+        "SOMEONE GIVE THIS MF ATTENTION WTF!",
+    ],
+    "fuckoff": [
+        "You're not a vibe bro 😭",
+        "NIGGAS BE SO ANNOYING BRO",
+        "Point and laugh, y'all.",
+        "Someone ban this nigga",
+        "Banned",
+        "Y'all hear somethin?",
+    ]
 }
 
-last_lonely_response = None  # global memory of the last message
+# Support command functions with logging
+def create_support_command(command_name):
+    async def support_command(ctx):
+        try:
+            global_var_name = f"last_{command_name}_response"
+            if global_var_name not in globals():
+                globals()[global_var_name] = None
+            
+            available = responses[command_name]
+            
+            for _ in range(5):
+                msg = random.choice(available)
+                if msg != globals()[global_var_name]:
+                    break
+            
+            globals()[global_var_name] = msg
+            await ctx.send(msg)
+            await logger.log_command_usage(ctx, command_name, success=True)
+            
+        except Exception as e:
+            await logger.log_error(e, f"Support Command Error ({command_name})")
+            await logger.log_command_usage(ctx, command_name, success=False)
+    
+    return support_command
 
-@bot.command()
-async def lonely(ctx):
-   global last_lonely_response
-   available = responses["lonely"]
+# Create all support commands
+for cmd_name in responses.keys():
+    bot.command(name=cmd_name)(create_support_command(cmd_name))
 
-   # Retry picking until it's different, or give up after 5 tries
-   for _ in range(5):
-       msg = random.choice(available)
-       if msg != last_lonely_response:
-           break
-
-
-   last_lonely_response = msg
-   await ctx.send(msg)
-
-last_dysmorphia_response = None  # global memory of the last message
-
-@bot.command()
-async def dysmorphia(ctx):
-   global last_dysmorphia_response
-   available = responses["dysmorphia"]
-
-
-   # Retry picking until it's different, or give up after 5 tries
-   for _ in range(5):
-       msg = random.choice(available)
-       if msg != last_dysmorphia_response:
-           break
-
-
-   last_dysmorphia_response = msg
-   await ctx.send(msg)
-
-last_comfort_response = None  # global memory of the last message
-
-@bot.command()
-async def comfort(ctx):
-   global last_comfort_response
-   available = responses["comfort"]
-
-
-   # Retry picking until it's different, or give up after 5 tries
-   for _ in range(5):
-       msg = random.choice(available)
-       if msg != last_comfort_response:
-           break
-
-
-   last_comfort_response = msg
-   await ctx.send(msg)
-
-last_suicidal_response = None  # global memory of the last message
-
-@bot.command()
-async def suicidal(ctx):
-   global last_suicidal_response
-   available = responses["suicidal"]
-
-
-   # Retry picking until it's different, or give up after 5 tries
-   for _ in range(5):
-       msg = random.choice(available)
-       if msg != last_suicidal_response:
-           break
-
-
-   last_suicidal_response = msg
-   await ctx.send(msg)
-
-last_anxious_response = None  # global memory of the last message
-
-@bot.command()
-async def anxious(ctx):
-   global last_anxious_response
-   available = responses["anxious"]
-
-
-   # Retry picking until it's different, or give up after 5 tries
-   for _ in range(5):
-       msg = random.choice(available)
-       if msg != last_anxious_response:
-           break
-
-
-   last_anxious_response = msg
-   await ctx.send(msg)
-
-last_addiction_response = None  # global memory of the last message
-
-
-@bot.command()
-async def addiction(ctx):
-   global last_addiction_response
-   available = responses["addiction"]
-
-
-   # Retry picking until it's different, or give up after 5 tries
-   for _ in range(5):
-       msg = random.choice(available)
-       if msg != last_addiction_response:
-           break
-
-
-   last_addiction_response = msg
-   await ctx.send(msg)
-
-last_attention_response = None  # global memory of the last message
-
-@bot.command()
-async def attention(ctx):
-   global last_attention_response
-   available = responses["attention"]
-
-
-   # Retry picking until it's different, or give up after 5 tries
-   for _ in range(5):
-       msg = random.choice(available)
-       if msg != last_attention_response:
-           break
-
-
-   last_attention_response = msg
-   await ctx.send(msg)
-
-last_fuckoff_response = None  # global memory of the last message
-
-@bot.command()
-async def fuckoff(ctx):
-   global last_fuckoff_response
-   available = responses["fuckoff"]
-
-
-   # Retry picking until it's different, or give up after 5 tries
-   for _ in range(5):
-       msg = random.choice(available)
-       if msg != last_fuckoff_response:
-           break
-
-
-   last_fuckoff_response = msg
-   await ctx.send(msg)
-
-# Optional: generic fallback command
-@bot.command()
-async def sad(ctx, topic=None):
-   if topic and topic in responses:
-       msg = random.choice(responses[topic])
-       await ctx.send(msg)
-   else:
-       await ctx.send("Sorry, I don’t have sad messages for that topic yet.")
+# ─── Unscramble Game ─────────────────────────────────────────────────
 
 # Load English word list
 with open("common_words.txt") as f:
-   english_words = [word.strip() for word in f if 5 <= len(word.strip()) <= 7]
+    english_words = [word.strip() for word in f if 5 <= len(word.strip()) <= 7]
 
 # Store current word challenge
 current_word = None
 scrambled_word = None
+revealed_indexes = set()
+hint_count = 0
 
-revealed_indexes = set()  # tracks which letter positions are revealed
-hint_count = 0            # tracks how many hints have been used
-
-# Start the game
 @bot.command(name='unscramble')
 async def unscramble(ctx):
-   global current_word, scrambled_word, revealed_indexes, hint_count
-   current_word = random.choice(english_words)
-   scrambled_word = ''.join(random.sample(current_word, len(current_word)))
+    try:
+        global current_word, scrambled_word, revealed_indexes, hint_count
+        current_word = random.choice(english_words)
+        scrambled_word = ''.join(random.sample(current_word, len(current_word)))
 
+        # Reset hint tracking
+        revealed_indexes = set([0, len(current_word) - 1])
+        hint_count = 0
 
-   # Reset hint tracking
-   revealed_indexes = set([0, len(current_word) - 1])  # first and last revealed first
-   hint_count = 0
+        await ctx.send(f"🧠 Unscramble this word: **{scrambled_word}**")
+        await logger.log_command_usage(ctx, "unscramble", success=True, extra_info=f"Word: {current_word}")
+        
+    except Exception as e:
+        await logger.log_error(e, "Unscramble Start Error")
+        await logger.log_command_usage(ctx, "unscramble", success=False)
 
-
-   await ctx.send(f"🧠 Unscramble this word: **{scrambled_word}**")
-
-# Handle user guesses
 @bot.command(name='guess')
 async def guess(ctx, user_guess: str):
-   global current_word
-   if current_word is None:
-       await ctx.send("❗ No game running. Start one with `!unscramble`.")
-       return
+    try:
+        global current_word
+        if current_word is None:
+            await ctx.send("❗ No game running. Start one with `!unscramble`.")
+            await logger.log_command_usage(ctx, "guess", success=False, extra_info="No active game")
+            return
 
-# 1. Check answer
-   if user_guess.lower() == current_word.lower():
+        if user_guess.lower() == current_word.lower():
+            # Award points
+            guild_id = str(ctx.guild.id)
+            user_id  = str(ctx.author.id)
+            record   = get_user_record(guild_id, user_id)
+            record['points'] += UNSCRAMBLE_POINTS
+            record['unscramble_submissions'] += 1
+            save_pikapoints(pika_data)
 
+            await ctx.send(
+                f"✅ Correct! You earned **{UNSCRAMBLE_POINTS}** PikaPoints.\n"
+                f"• **Total Points:** {record['points']}\n"
+                f"• **Unscramble Submissions:** {record['unscramble_submissions']}"
+            )
 
-       # 2. Award points
-       guild_id = str(ctx.guild.id)
-       user_id  = str(ctx.author.id)
-       record   = get_user_record(guild_id, user_id)
-       record['points']               += UNSCRAMBLE_POINTS
-       record['unscramble_submissions'] += 1
-       save_pikapoints(pika_data)
-
-
-       # 3. Send feedback & updated stats
-       await ctx.send(
-           f"✅ Correct! You earned **{UNSCRAMBLE_POINTS}** PikaPoints.\n"
-           f"• **Total Points:** {record['points']}\n"
-           f"• **Unscramble Submissions:** {record['unscramble_submissions']}"
-       )
-
-
-       # 4. Reset or pick a new word
-       current_word = None
-
-
-   else:
-       await ctx.send("❌ Nope, try again.")
+            # Log success
+            await logger.log_game_result("Unscramble", ctx.author.id, ctx.guild.id, f"Word: {current_word}")
+            await logger.log_points_award(ctx.author.id, ctx.guild.id, UNSCRAMBLE_POINTS, "unscramble", record["points"])
+            await logger.log_command_usage(ctx, "guess", success=True, extra_info=f"Correct guess: {user_guess}")
+            
+            current_word = None
+        else:
+            await ctx.send("❌ Nope, try again.")
+            await logger.log_command_usage(ctx, "guess", success=True, extra_info=f"Incorrect guess: {user_guess}")
+            
+    except Exception as e:
+        await logger.log_error(e, "Guess Command Error")
+        await logger.log_command_usage(ctx, "guess", success=False)
 
 @bot.command(name='hint')
 async def hint(ctx):
-   global current_word, revealed_indexes, hint_count
+    try:
+        global current_word, revealed_indexes, hint_count
 
+        if current_word is None:
+            await ctx.send("❗ No game is active. Start with `!unscramble`.")
+            await logger.log_command_usage(ctx, "hint", success=False, extra_info="No active game")
+            return
 
-   if current_word is None:
-       await ctx.send("❗ No game is active. Start with `!unscramble`.")
-       return
+        hint_count += 1
 
+        if hint_count > 1:
+            possible_indexes = [
+                i for i in range(1, len(current_word) - 1)
+                if i not in revealed_indexes
+            ]
+            if possible_indexes:
+                new_index = random.choice(possible_indexes)
+                revealed_indexes.add(new_index)
 
-   hint_count += 1
+        display = ""
+        for i, char in enumerate(current_word):
+            if i in revealed_indexes:
+                display += char + " "
+            else:
+                display += "_ "
 
-
-   # After the first hint, start revealing middle letters randomly
-   if hint_count > 1:
-       # Find all indexes not already revealed and not the first/last
-       possible_indexes = [
-           i for i in range(1, len(current_word) - 1)
-           if i not in revealed_indexes
-       ]
-       if possible_indexes:
-           new_index = random.choice(possible_indexes)
-           revealed_indexes.add(new_index)
-
-
-   # Build the hint string with revealed letters
-   display = ""
-   for i, char in enumerate(current_word):
-       if i in revealed_indexes:
-           display += char + " "
-       else:
-           display += "_ "
-
-
-   await ctx.send(f"💡 Hint: {display.strip()}")
-
+        await ctx.send(f"💡 Hint: {display.strip()}")
+        await logger.log_command_usage(ctx, "hint", success=True, extra_info=f"Hint #{hint_count}")
+        
+    except Exception as e:
+        await logger.log_error(e, "Hint Command Error")
+        await logger.log_command_usage(ctx, "hint", success=False)
 
 @bot.command(name='reveal')
 async def reveal(ctx):
-   global current_word
-   if current_word is None:
-       await ctx.send("❗ No word to reveal. Start a new game with `!unscramble`.")
-   else:
-       await ctx.send(f"🕵️ The correct word was: **{current_word}**")
-       current_word = None  # end the round
+    try:
+        global current_word
+        if current_word is None:
+            await ctx.send("❗ No word to reveal. Start a new game with `!unscramble`.")
+            await logger.log_command_usage(ctx, "reveal", success=False, extra_info="No active game")
+        else:
+            await ctx.send(f"🕵️ The correct word was: **{current_word}**")
+            await logger.log_command_usage(ctx, "reveal", success=True, extra_info=f"Revealed word: {current_word}")
+            current_word = None
+            
+    except Exception as e:
+        await logger.log_error(e, "Reveal Command Error")
+        await logger.log_command_usage(ctx, "reveal", success=False)
 
+# ─── Creepy Facts ─────────────────────────────────────────────────
 
 # Load creepy facts from file
 with open("creepy_facts.txt") as f:
-   facts = [line.strip() for line in f if line.strip()]
+    facts = [line.strip() for line in f if line.strip()]
 
-CHANNEL_IDS = [1388158646973632685,
-             1388397019479146580
-]
+CHANNEL_IDS = [1388158646973632685, 1388397019479146580]
 
-# Optional: Command to manually post one
 @bot.command(name="creepfact")
 async def creepfact(ctx):
-   await ctx.send(random.choice(facts))
+    try:
+        fact = random.choice(facts)
+        await ctx.send(fact)
+        await logger.log_command_usage(ctx, "creepfact", success=True)
+        
+    except Exception as e:
+        await logger.log_error(e, "Creep Fact Error")
+        await logger.log_command_usage(ctx, "creepfact", success=False)
+
+# ─── Points Command ─────────────────────────────────────────────────
 
 @bot.command(name='points', help='Display how many PikaPoints you have')
 async def points(ctx):
-    # 1. Load all PikaPoints from disk
-    if os.path.exists(PIKA_FILE):
-        with open(PIKA_FILE, 'r') as f:
-            all_data = json.load(f)
-    else:
-        all_data = {}
+    try:
+        if os.path.exists(PIKA_FILE):
+            with open(PIKA_FILE, 'r') as f:
+                all_data = json.load(f)
+        else:
+            all_data = {}
 
-    # 2. Get this server’s points dict (keyed by user ID)
-    guild_id_str = str(ctx.guild.id)
-    guild_data = all_data.get(guild_id_str, {})
+        guild_id_str = str(ctx.guild.id)
+        guild_data = all_data.get(guild_id_str, {})
 
-    # 3. Get the invoking user’s points (default to 0)
-    user_id_str = str(ctx.author.id)
-    user_points = guild_data.get(user_id_str, 0)
+        user_id_str = str(ctx.author.id)
+        user_record = guild_data.get(user_id_str, {"points": 0})
+        user_points = user_record.get("points", 0) if isinstance(user_record, dict) else user_record
 
-    # 4. Reply with their total
-    await ctx.send(f'{ctx.author.mention}, you have **{user_points}** PikaPoints!')
+        await ctx.send(f'{ctx.author.mention}, you have **{user_points}** PikaPoints!')
+        await logger.log_command_usage(ctx, "points", success=True, extra_info=f"User has {user_points} points")
+        
+    except Exception as e:
+        await logger.log_error(e, "Points Command Error")
+        await logger.log_command_usage(ctx, "points", success=False)
 
+# ─── Help Command ─────────────────────────────────────────────────
 
 @bot.command(name="pikahelp")
 async def pikahelp_command(ctx):
-   pikahelp_text = """
+    try:
+        pikahelp_text = """
 🧠 **Pikabug Commands**:
 
 `!pikahelp` - Show list of Pikabug's commands.
@@ -677,7 +745,14 @@ async def pikahelp_command(ctx):
 `!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix. PikaPoints are rewarded for winners.
 `!creepfact` — Get a random creepy fact in the lounge or spam center.
 """
-   await ctx.send(pikahelp_text)
+        await ctx.send(pikahelp_text)
+        await logger.log_command_usage(ctx, "pikahelp", success=True)
+        
+    except Exception as e:
+        await logger.log_error(e, "Help Command Error")
+        await logger.log_command_usage(ctx, "pikahelp", success=False)
 
-# Insert your actual token below
+# ─── Bot Startup ─────────────────────────────────────────────────
+
+# Run the bot
 bot.run(os.getenv("DISCORD_TOKEN"))

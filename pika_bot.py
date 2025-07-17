@@ -5,13 +5,16 @@ import json
 import os
 import traceback
 import datetime
-from discord.ext import commands, tasks
+from discord.ext import commands
 from dotenv import load_dotenv
-load_dotenv()
+
 from openai import OpenAI
 from collections import deque, defaultdict
 from typing import Dict, List
 from anthropic import Anthropic
+
+# ─── Load Environment Variables ─────────────────────────────────────────────
+load_dotenv()
 
 # ─── Configuration Constants ───────────────────────────────────────────────
 RAW_MESSAGE_LIMIT = 30
@@ -44,13 +47,118 @@ class UserMemory:
         memory.user_context = data.get("user_context", {})
         return memory
 
-# Global conversation memory
+# ─── Logging System ─────────────────────────────────────────────────
+class DiscordLogger:
+    def __init__(self, bot):
+        self.bot = bot
+        self.log_channel = None
+
+    async def initialize(self):
+        if LOG_CHANNEL_ID:
+            try:
+                self.log_channel = self.bot.get_channel(LOG_CHANNEL_ID)
+                if not self.log_channel:
+                    print(f"Warning: Could not find log channel with ID {LOG_CHANNEL_ID}")
+            except Exception as e:
+                print(f"Error initializing log channel: {e}")
+
+    async def log_command_usage(self, ctx, command_name, success=True, extra_info=""):
+        status = "✅ SUCCESS" if success else "❌ FAILED"
+        embed = discord.Embed(
+            title=f"Command: {command_name}",
+            color=0x00ff00 if success else 0xff0000,
+            timestamp=datetime.datetime.now()
+        )
+        embed.add_field(name="User", value=f"{ctx.author.mention} ({ctx.author.id})", inline=True)
+        embed.add_field(name="Guild", value=f"{ctx.guild.name} ({ctx.guild.id})", inline=True)
+        embed.add_field(name="Channel", value=f"#{ctx.channel.name} ({ctx.channel.id})", inline=True)
+        embed.add_field(name="Status", value=status, inline=False)
+        if extra_info:
+            embed.add_field(name="Details", value=extra_info[:1024], inline=False)
+        await self._send_log(embed)
+
+    async def log_error(self, error, context="General Error", extra_details=""):
+        embed = discord.Embed(
+            title="🚨 ERROR OCCURRED",
+            color=0xff0000,
+            timestamp=datetime.datetime.now()
+        )
+        embed.add_field(name="Context", value=context, inline=True)
+        embed.add_field(name="Error Type", value=type(error).__name__, inline=True)
+        embed.add_field(name="Error Message", value=str(error)[:1024], inline=False)
+        if extra_details:
+            embed.add_field(name="Extra Details", value=extra_details[:1024], inline=False)
+        tb = traceback.format_exc()
+        if len(tb) > 1024:
+            tb = tb[-1024:]
+        embed.add_field(name="Traceback", value=f"```python\n{tb}\n```", inline=False)
+        await self._send_log(embed)
+
+    async def log_points_award(self, user_id, guild_id, points_awarded, command_type, new_total):
+        embed = discord.Embed(
+            title="💰 PikaPoints Awarded",
+            color=0xffd700,
+            timestamp=datetime.datetime.now()
+        )
+        embed.add_field(name="User ID", value=str(user_id), inline=True)
+        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+        embed.add_field(name="Points Awarded", value=str(points_awarded), inline=True)
+        embed.add_field(name="Command Type", value=command_type, inline=True)
+        embed.add_field(name="New Total", value=str(new_total), inline=True)
+        await self._send_log(embed)
+
+    async def log_game_result(self, game_type, winner_id, guild_id, details=""):
+        embed = discord.Embed(
+            title=f"🎮 Game Result: {game_type}",
+            color=0x00ffff,
+            timestamp=datetime.datetime.now()
+        )
+        embed.add_field(name="Winner ID", value=str(winner_id), inline=True)
+        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+        embed.add_field(name="Game Type", value=game_type, inline=True)
+        if details:
+            embed.add_field(name="Details", value=details[:1024], inline=False)
+        await self._send_log(embed)
+
+    async def log_ai_usage(self, user_id, guild_id, prompt_length, response_length, success=True):
+        embed = discord.Embed(
+            title="🤖 AI Command Usage",
+            color=0x9932cc,
+            timestamp=datetime.datetime.now()
+        )
+        embed.add_field(name="User ID", value=str(user_id), inline=True)
+        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+        embed.add_field(name="Prompt Length", value=f"{prompt_length} chars", inline=True)
+        embed.add_field(name="Response Length", value=f"{response_length} chars", inline=True)
+        embed.add_field(name="Success", value="✅" if success else "❌", inline=True)
+        await self._send_log(embed)
+
+    async def log_bot_event(self, event_type, message):
+        embed = discord.Embed(
+            title=f"🔔 Bot Event: {event_type}",
+            color=0x808080,
+            timestamp=datetime.datetime.now()
+        )
+        embed.add_field(name="Message", value=message[:1024], inline=False)
+        await self._send_log(embed)
+
+    async def _send_log(self, embed):
+        if self.log_channel:
+            try:
+                await self.log_channel.send(embed=embed)
+            except Exception as e:
+                print(f"Failed to send log to Discord: {e}")
+        else:
+            print("Log channel not available - printing to console:")
+            print(f"Title: {embed.title}")
+            for field in embed.fields:
+                print(f"{field.name}: {field.value}")
+
+# ─── Global Memory and AI Client ───────────────────────────────────────────
 conversation_memory: Dict[str, UserMemory] = {}
 
-# Initialize Anthropic client
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-# Load and save memory 
 def load_conversation_memory() -> Dict[str, UserMemory]:
     if os.path.exists(MEMORY_FILE):
         try:
@@ -61,7 +169,6 @@ def load_conversation_memory() -> Dict[str, UserMemory]:
         except Exception as e:
             print(f"Error loading memory: {e}")
     return conversation_memory
-
 
 def save_conversation_memory():
     os.makedirs(DISK_PATH, exist_ok=True)
@@ -75,7 +182,6 @@ def save_conversation_memory():
     except Exception as e:
         print(f"Failed to save memory: {e}")
 
-# ─── Summarization and Context Extraction ───────────────────────────────────
 async def summarize_messages(messages: List[dict], user_context: dict) -> str:
     conversation_text = "".join(
         f"{('User' if msg['role']=='user' else 'Pikabug')}: {msg['content']}\n\n" \
@@ -128,32 +234,25 @@ Recent conversation:
     except Exception as e:
         print(f"Context update error: {e}")
 
-# NOW load the conversation memory
+# Load memory at startup
 conversation_memory = load_conversation_memory()
-
-# Bot Set up
+# ─── Bot Setup ─────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True
 intents.reactions = True
 intents.guilds = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
-
-# Initialize logger
 logger = DiscordLogger(bot)
 
 # ─── Bot Events ─────────────────────────────────────────────────
-
 @bot.event
-def on_command_error(ctx, error):
-    """Global error handler"""
+async def on_command_error(ctx, error):
     await logger.log_error(
         error, 
         f"Command Error in {ctx.command.name if ctx.command else 'Unknown Command'}", 
         f"User: {ctx.author.id}, Guild: {ctx.guild.id if ctx.guild else 'DM'}"
     )
-    
-    # Send user-friendly error message
     if isinstance(error, commands.CommandNotFound):
         await ctx.send("❌ Command not found. Use `!pikahelp` to see available commands.")
     elif isinstance(error, commands.MissingRequiredArgument):
@@ -161,11 +260,9 @@ def on_command_error(ctx, error):
     else:
         await ctx.send("❌ An error occurred while processing your command.")
 
-# ─── Single on_ready Event ─────────────────────────────────────────────────
 @bot.event
 async def on_ready():
     await logger.initialize()
-    # Debug info
     print(f"Disk path: {DISK_PATH}, exists: {os.path.exists(DISK_PATH)}")
     print(f"Files on disk: {os.listdir(DISK_PATH) if os.path.exists(DISK_PATH) else 'N/A'}")
     print(f"Memory file exists: {os.path.exists(MEMORY_FILE)}")
@@ -206,14 +303,13 @@ async def chat(ctx, *, prompt):
         msgs.extend(mem.raw_messages)
         msgs.append({"role": "user", "content": prompt})
 
-        # Your existing system prompt
         system_prompt = """You are Pikabug, a generally blunt and edgy Discord companion, who can be emotionally intelligent when needed, in the Atypical Asylum server.
 
 Your personality traits:
 - Add edgy humor updated for 2025 to the general discussion
 - Add unpredictable humor to the general discussion
 - Empathetic, compassionate, patient, and full of rare wisdom when providing emotional support
-- Never use outdated slang or jokes and don't attempt to be \"hip\"
+- Never use outdated slang or jokes and don't attempt to be "hip"
 - Keep responses edgy and chill in general discussion
 - Keep responses serious, meaningful, helpful, and emotionally intelligent in serious, emotional discussion
 - Be personal, vulnerable, and human-like when providing emotional support 
@@ -234,7 +330,6 @@ Communication style:
 
 Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""
 
-        # Make API call to Claude
         resp = client.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=1000,
@@ -244,15 +339,12 @@ Remember: You're a trusted edgy, humorous friend who tells it like it is, but ge
         )
         reply = resp.content[0].text
 
-        # Save messages
         mem.raw_messages.append({"role": "user", "content": prompt})
         mem.raw_messages.append({"role": "assistant", "content": reply})
         await update_user_context(key)
         save_conversation_memory()
 
         await thinking.edit(content=reply)
-        # Logging omitted for brevity
-        # Include memory stats in log
         memory_info = f"Messages: {len(mem.raw_messages)}, Summaries: {len(mem.summaries)}"
         await logger.log_command_usage(ctx, "chat", success=True, 
             extra_info=f"Prompt: {prompt[:50]}... | Memory: {memory_info}")
@@ -277,180 +369,10 @@ async def memory_status(ctx):
         f"• User facts: {len(mem.user_context)} items"
     )
 
-# ─── Logging System ─────────────────────────────────────────────────
-
-class DiscordLogger:
-    def __init__(self, bot):
-        self.bot = bot
-        self.log_channel = None
-        
-    async def initialize(self):
-        """Initialize the log channel after bot is ready"""
-        if LOG_CHANNEL_ID:
-            try:
-                self.log_channel = self.bot.get_channel(LOG_CHANNEL_ID)
-                if not self.log_channel:
-                    print(f"Warning: Could not find log channel with ID {LOG_CHANNEL_ID}")
-            except Exception as e:
-                print(f"Error initializing log channel: {e}")
-    
-    async def log_command_usage(self, ctx, command_name, success=True, extra_info=""):
-        """Log command usage with context"""
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        status = "✅ SUCCESS" if success else "❌ FAILED"
-        
-        embed = discord.Embed(
-            title=f"Command: {command_name}",
-            color=0x00ff00 if success else 0xff0000,
-            timestamp=datetime.datetime.now()
-        )
-        
-        embed.add_field(name="User", value=f"{ctx.author.mention} ({ctx.author.id})", inline=True)
-        embed.add_field(name="Guild", value=f"{ctx.guild.name} ({ctx.guild.id})", inline=True)
-        embed.add_field(name="Channel", value=f"#{ctx.channel.name} ({ctx.channel.id})", inline=True)
-        embed.add_field(name="Status", value=status, inline=False)
-        
-        if extra_info:
-            embed.add_field(name="Details", value=extra_info[:1024], inline=False)
-            
-        await self._send_log(embed)
-    
-    async def log_error(self, error, context="General Error", extra_details=""):
-        """Log errors with full traceback"""
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        embed = discord.Embed(
-            title="🚨 ERROR OCCURRED",
-            color=0xff0000,
-            timestamp=datetime.datetime.now()
-        )
-        
-        embed.add_field(name="Context", value=context, inline=True)
-        embed.add_field(name="Error Type", value=type(error).__name__, inline=True)
-        embed.add_field(name="Error Message", value=str(error)[:1024], inline=False)
-        
-        if extra_details:
-            embed.add_field(name="Extra Details", value=extra_details[:1024], inline=False)
-        
-        # Add traceback as a separate field
-        tb = traceback.format_exc()
-        if len(tb) > 1024:
-            tb = tb[-1024:]  # Keep last 1024 chars of traceback
-        embed.add_field(name="Traceback", value=f"```python\n{tb}\n```", inline=False)
-        
-        await self._send_log(embed)
-    
-    async def log_points_award(self, user_id, guild_id, points_awarded, command_type, new_total):
-        """Log PikaPoints awards"""
-        embed = discord.Embed(
-            title="💰 PikaPoints Awarded",
-            color=0xffd700,
-            timestamp=datetime.datetime.now()
-        )
-        
-        embed.add_field(name="User ID", value=str(user_id), inline=True)
-        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
-        embed.add_field(name="Points Awarded", value=str(points_awarded), inline=True)
-        embed.add_field(name="Command Type", value=command_type, inline=True)
-        embed.add_field(name="New Total", value=str(new_total), inline=True)
-        
-        await self._send_log(embed)
-    
-    async def log_game_result(self, game_type, winner_id, guild_id, details=""):
-        """Log game results"""
-        embed = discord.Embed(
-            title=f"🎮 Game Result: {game_type}",
-            color=0x00ffff,
-            timestamp=datetime.datetime.now()
-        )
-        
-        embed.add_field(name="Winner ID", value=str(winner_id), inline=True)
-        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
-        embed.add_field(name="Game Type", value=game_type, inline=True)
-        
-        if details:
-            embed.add_field(name="Details", value=details[:1024], inline=False)
-        
-        await self._send_log(embed)
-    
-    async def log_ai_usage(self, user_id, guild_id, prompt_length, response_length, success=True):
-        """Log AI command usage"""
-        embed = discord.Embed(
-            title="🤖 AI Command Usage",
-            color=0x9932cc,
-            timestamp=datetime.datetime.now()
-        )
-        
-        embed.add_field(name="User ID", value=str(user_id), inline=True)
-        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
-        embed.add_field(name="Prompt Length", value=f"{prompt_length} chars", inline=True)
-        embed.add_field(name="Response Length", value=f"{response_length} chars", inline=True)
-        embed.add_field(name="Success", value="✅" if success else "❌", inline=True)
-        
-        await self._send_log(embed)
-    
-    async def log_bot_event(self, event_type, message):
-        """Log general bot events"""
-        embed = discord.Embed(
-            title=f"🔔 Bot Event: {event_type}",
-            color=0x808080,
-            timestamp=datetime.datetime.now()
-        )
-        
-        embed.add_field(name="Message", value=message[:1024], inline=False)
-        
-        await self._send_log(embed)
-    
-    async def _send_log(self, embed):
-        """Internal method to send log to Discord channel"""
-        if self.log_channel:
-            try:
-                await self.log_channel.send(embed=embed)
-            except Exception as e:
-                print(f"Failed to send log to Discord: {e}")
-        else:
-            print("Log channel not available - printing to console:")
-            print(f"Title: {embed.title}")
-            for field in embed.fields:
-                print(f"{field.name}: {field.value}")
-
-# Support command functions with logging
-def create_support_command(command_name):
-    async def support_command(ctx):
-        try:
-            global_var_name = f"last_{command_name}_response"
-            if global_var_name not in globals():
-                globals()[global_var_name] = None
-            
-            available = responses[command_name]
-            
-            for _ in range(5):
-                msg = random.choice(available)
-                if msg != globals()[global_var_name]:
-                    break
-            
-            globals()[global_var_name] = msg
-            await ctx.send(msg)
-            await logger.log_command_usage(ctx, command_name, success=True)
-            
-        except Exception as e:
-            await logger.log_error(e, f"Support Command Error ({command_name})")
-            await logger.log_command_usage(ctx, command_name, success=False)
-    
-    return support_command
-
-# Create all support commands
-for cmd_name in responses.keys():
-    bot.command(name=cmd_name)(create_support_command(cmd_name))
-
 # ─── PikaPoints Data ─────────────────────────────────────────────────
-
-# PikaPoints reward values
 JOURNAL_POINTS = 15
 PREFIXGAME_POINTS = 5
 UNSCRAMBLE_POINTS = 5
-
-client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 def load_pikapoints():
     if not os.path.exists(PIKA_FILE):
@@ -468,7 +390,6 @@ def save_pikapoints(data: dict):
 pika_data = load_pikapoints()
 
 def get_user_record(guild_id: str, user_id: str):
-    """Ensure a record exists and return it."""
     guild = pika_data.setdefault(guild_id, {})
     return guild.setdefault(user_id, {
         "points": 0,
@@ -478,19 +399,15 @@ def get_user_record(guild_id: str, user_id: str):
     })
 
 # ─── Word Games ─────────────────────────────────────────────────
-
-# Load word list
 with open("words_alpha.txt", "r") as f:
     WORDS = set(line.strip().lower() for line in f)
 
-# Build prefix→words map
 prefix_map: Dict[str, List[str]] = defaultdict(list)
 for w in WORDS:
     if len(w) >= 3:
         p = w[:3]
         prefix_map[p].append(w)
 
-# Filter to "common" prefixes
 MIN_WORDS_PER_PREFIX = 5
 common_prefixes = [
     p for p, lst in prefix_map.items()
@@ -500,12 +417,10 @@ common_prefixes = [
 @bot.command(name="prefixgame")
 async def prefixgame(ctx):
     try:
-        # Pick and announce a prefix
         weights = [len(prefix_map[p]) for p in common_prefixes]
         current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
         await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
 
-        # Collect submissions
         submissions: Dict[discord.Member, str] = {}
         def check(m: discord.Message) -> bool:
             return (
@@ -530,7 +445,6 @@ async def prefixgame(ctx):
             await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info="No submissions")
             return
 
-        # Determine winner and award points
         winner, winning_word = max(submissions.items(), key=lambda kv: len(kv[1]))
         guild_id = str(ctx.guild.id)
         user_id = str(winner.id)
@@ -539,15 +453,12 @@ async def prefixgame(ctx):
         record["prefixgame_submissions"] += 1
         save_pikapoints(pika_data)
 
-        # Send results
         await ctx.send(
             f"🏆 **{winner.display_name}** wins with **{winning_word}** ({len(winning_word)} letters)!\n"
             f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
             f"• Total Points: **{record['points']}**\n"
             f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
         )
-        
-        # Log game result and points
         await logger.log_game_result("Prefix Game", winner.id, ctx.guild.id, f"Word: {winning_word}")
         await logger.log_points_award(winner.id, ctx.guild.id, PREFIXGAME_POINTS, "prefixgame", record["points"])
         await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info=f"Winner: {winner.display_name}")
@@ -555,8 +466,8 @@ async def prefixgame(ctx):
     except Exception as e:
         await logger.log_error(e, "Prefix Game Error")
         await logger.log_command_usage(ctx, "prefixgame", success=False)
-
-# ─── Journal System ─────────────────────────────────────────────────
+        
+        # ─── Journal System ─────────────────────────────────────────────────
 
 journal_prompts = [
     "What were your childhood career dreams/goals? How do they compare to what you want to do now?",

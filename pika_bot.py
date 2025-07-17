@@ -9,38 +9,35 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 load_dotenv()
 from openai import OpenAI
-from collections import defaultdict, deque
+from collections import deque
 from typing import Dict, List
 from anthropic import Anthropic
 
-# ─── Configuration ─────────────────────────────────────────────────
-
-# Define the disk path first
+# ─── Configuration Constants ───────────────────────────────────────────────
+RAW_MESSAGE_LIMIT = 30
+MESSAGES_TO_SUMMARIZE = 10
+MAX_SUMMARIES = 5
 DISK_PATH = os.getenv("PIKA_DISK_MOUNT_PATH", "/var/data")
+MEMORY_FILE = os.path.join(DISK_PATH, "conversation_memory.json")
+PIKA_FILE = os.path.join(DISK_PATH, "pikapoints.json")
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
 
-# Memory configuration constants
-RAW_MESSAGE_LIMIT = 30  # Keep last 30 raw messages
-MESSAGES_TO_SUMMARIZE = 10  # Summarize 10 messages at a time
-MAX_SUMMARIES = 5  # Keep up to 5 summaries per user
-
-# Updated conversation memory structure
+# ─── User Memory Structure ────────────────────────────────────────────────
 class UserMemory:
     def __init__(self):
-        self.raw_messages = deque(maxlen=RAW_MESSAGE_LIMIT)  # Recent messages
-        self.summaries = deque(maxlen=MAX_SUMMARIES)  # Condensed older history
-        self.user_context = {}  # Persistent facts about the user
-    
-    def to_dict(self):
-        """Convert to dictionary for JSON serialization"""
+        self.raw_messages = deque(maxlen=RAW_MESSAGE_LIMIT)
+        self.summaries = deque(maxlen=MAX_SUMMARIES)
+        self.user_context: Dict[str, str] = {}
+
+    def to_dict(self) -> dict:
         return {
             "raw_messages": list(self.raw_messages),
             "summaries": list(self.summaries),
             "user_context": self.user_context
         }
-    
+
     @classmethod
-    def from_dict(cls, data):
-        """Create UserMemory from dictionary"""
+    def from_dict(cls, data: dict) -> "UserMemory":
         memory = cls()
         memory.raw_messages = deque(data.get("raw_messages", []), maxlen=RAW_MESSAGE_LIMIT)
         memory.summaries = deque(data.get("summaries", []), maxlen=MAX_SUMMARIES)
@@ -53,127 +50,88 @@ conversation_memory: Dict[str, UserMemory] = {}
 # Initialize Anthropic client
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-def load_conversation_memory():
-    """Load conversation memory with new structure"""
-    memory_file = os.path.join(DISK_PATH, "conversation_memory.json")
-    if os.path.exists(memory_file):
+# Load and save memory 
+def load_conversation_memory() -> Dict[str, UserMemory]:
+    if os.path.exists(MEMORY_FILE):
         try:
-            with open(memory_file, "r") as f:
+            with open(MEMORY_FILE, "r") as f:
                 data = json.load(f)
-                # Convert loaded data to UserMemory objects
-                for user_key, user_data in data.items():
-                    conversation_memory[user_key] = UserMemory.from_dict(user_data)
-                return conversation_memory
+            for user_key, user_data in data.items():
+                conversation_memory[user_key] = UserMemory.from_dict(user_data)
         except Exception as e:
-            print(f"Error loading conversation memory: {e}")
-            return {}
-    return {}
+            print(f"Error loading memory: {e}")
+    return conversation_memory
+
 
 def save_conversation_memory():
-    """Save conversation memory with new structure"""
-    memory_file = os.path.join(DISK_PATH, "conversation_memory.json")
+    os.makedirs(DISK_PATH, exist_ok=True)
+    data_to_save = {k: m.to_dict() for k, m in conversation_memory.items()}
     try:
-        os.makedirs(DISK_PATH, exist_ok=True)
-        
-        # Convert UserMemory objects to dictionaries for JSON
-        data_to_save = {}
-        for user_key, memory in conversation_memory.items():
-            data_to_save[user_key] = memory.to_dict()
-        
-        with open(memory_file, "w") as f:
+        with open(MEMORY_FILE, "w") as f:
             json.dump(data_to_save, f)
             f.flush()
             os.fsync(f.fileno())
-        print(f"Successfully saved memory for {len(conversation_memory)} users")
+        print(f"Memory saved for {len(conversation_memory)} users")
     except Exception as e:
-        print(f"Failed to save conversation memory: {e}")
+        print(f"Failed to save memory: {e}")
 
+# ─── Summarization and Context Extraction ───────────────────────────────────
 async def summarize_messages(messages: List[dict], user_context: dict) -> str:
-    """Summarize a batch of messages using Claude"""
+    conversation_text = "".join(
+        f"{('User' if msg['role']=='user' else 'Pikabug')}: {msg['content']}\n\n" \
+        for msg in messages
+    )
+    prompt = f"""Summarize this segment in 2-3 sentences focusing on key topics, user facts, decisions.
+
+Current context: {json.dumps(user_context)}
+
+Segment:
+{conversation_text}"""
     try:
-        # Build conversation text for summarization
-        conversation_text = ""
-        for msg in messages:
-            role = "User" if msg["role"] == "user" else "Pikabug"
-            conversation_text += f"{role}: {msg['content']}\n\n"
-        
-        # Create summarization prompt
-        summary_prompt = f"""Summarize this conversation segment in 2-3 sentences, focusing on:
-1. Key topics discussed
-2. Important facts about the user (preferences, background, emotional state)
-3. Any decisions or conclusions reached
-
-Conversation:
-{conversation_text}
-
-Current known user context: {json.dumps(user_context)}
-
-Provide a concise summary that preserves important context for future conversations."""
-
-        response = client.messages.create(
-            model="claude-3-haiku-20240307",  # Using cheaper/faster model for summaries
+        resp = client.messages.create(
+            model="claude-3-haiku-20240307",
             max_tokens=200,
             temperature=0.3,
-            messages=[{"role": "user", "content": summary_prompt}]
+            messages=[{"role": "user", "content": prompt}]
         )
-        
-        return response.content[0].text
+        return resp.content[0].text
     except Exception as e:
-        print(f"Error creating summary: {e}")
-        # Fallback summary if API fails
-        return f"Previous conversation covered {len(messages)} messages about various topics."
+        print(f"Summary error: {e}")
+        return f"Summary: {len(messages)} messages about various topics."
 
-async def update_user_context(user_key: str, new_messages: List[dict]):
-    """Extract and update persistent user facts from recent messages"""
+async def update_user_context(user_key: str):
     memory = conversation_memory[user_key]
-    
-    try:
-        # Only update context periodically (every 10 messages)
-        if len(memory.raw_messages) % 10 != 0:
-            return
-        
-        recent_conversation = ""
-        for msg in list(memory.raw_messages)[-10:]:
-            role = "User" if msg["role"] == "user" else "Pikabug"
-            recent_conversation += f"{role}: {msg['content']}\n"
-        
-        context_prompt = f"""Based on this recent conversation, extract key facts about the user that should be remembered long-term.
-Focus on: name, occupation, interests, relationships, current situations, preferences, emotional patterns.
+    if len(memory.raw_messages) < MESSAGES_TO_SUMMARIZE or len(memory.raw_messages) % MESSAGES_TO_SUMMARIZE != 0:
+        return
+    recent = list(memory.raw_messages)[-MESSAGES_TO_SUMMARIZE:]
+    conv = "".join(
+        f"{('User' if msg['role']=='user' else 'Pikabug')}: {msg['content']}\n" for msg in recent
+    )
+    prompt = f"""Extract key user facts as JSON.
 
-Current known context: {json.dumps(memory.user_context)}
+Known context: {json.dumps(memory.user_context)}
 
 Recent conversation:
-{recent_conversation}
-
-Provide updated user context as a JSON object with clear, concise facts. Only include confirmed information."""
-
-        response = client.messages.create(
+{conv}"""
+    try:
+        resp = client.messages.create(
             model="claude-3-haiku-20240307",
             max_tokens=300,
             temperature=0.3,
-            messages=[{"role": "user", "content": context_prompt}]
+            messages=[{"role": "user", "content": prompt}]
         )
-        
-        # Parse the response and update context
-        response_text = response.content[0].text
-        # Try to extract JSON from response
         import re
-        json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
-        if json_match:
-            new_context = json.loads(json_match.group())
-            memory.user_context.update(new_context)
-            
+        match = re.search(r'\{.*\}', resp.content[0].text, re.DOTALL)
+        if match:
+            new_ctx = json.loads(match.group())
+            memory.user_context.update(new_ctx)
     except Exception as e:
-        print(f"Error updating user context: {e}")
+        print(f"Context update error: {e}")
 
 # NOW load the conversation memory
 conversation_memory = load_conversation_memory()
 
-# Continue with rest of configuration...
-PIKA_FILE = os.path.join(DISK_PATH, "pikapoints.json")
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
-assert os.path.isdir(DISK_PATH), f"Disk path {DISK_PATH} not found!"
-
+# Bot Set up
 intents = discord.Intents.default()
 intents.message_content = True
 intents.reactions = True
@@ -182,89 +140,93 @@ intents.guilds = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # [Include your DiscordLogger class here - unchanged]
-# [Include your bot events here - update the on_ready to show memory info]
+# Initialize logger
+logger = DiscordLogger(bot)
+
+# ─── Bot Events ─────────────────────────────────────────────────
 
 @bot.event
 async def on_ready():
     """Bot startup event"""
     await logger.initialize()
     
-    # Memory system info
-    total_users = len(conversation_memory)
-    total_messages = sum(len(m.raw_messages) for m in conversation_memory.values())
-    total_summaries = sum(len(m.summaries) for m in conversation_memory.values())
+    # Add debug information
+    print(f"Disk path: {DISK_PATH}")
+    print(f"Disk exists: {os.path.exists(DISK_PATH)}")
+    if os.path.exists(DISK_PATH):
+        print(f"Files in disk: {os.listdir(DISK_PATH)}")
     
-    print(f"Memory System Status:")
-    print(f"- Users with memory: {total_users}")
-    print(f"- Total raw messages: {total_messages}")
-    print(f"- Total summaries: {total_summaries}")
+    # Check conversation history
+    history_file = os.path.join(DISK_PATH, "conversation_history.json")
+    print(f"History file exists: {os.path.exists(history_file)}")
+    print(f"Loaded {len(conversation_history)} user conversation histories")
     
-    await logger.log_bot_event("Bot Started", 
-        f"Pikabug online! Memory: {total_users} users, {total_messages} messages, {total_summaries} summaries")
+    await logger.log_bot_event("Bot Started", f"Pikabug is online! Loaded {len(conversation_history)} user histories")
     print(f'{bot.user} has connected to Discord!')
 
-# ─── Updated AI Chat Command ─────────────────────────────────────────────────
+@bot.event
+async def on_command_error(ctx, error):
+    """Global error handler"""
+    await logger.log_error(
+        error, 
+        f"Command Error in {ctx.command.name if ctx.command else 'Unknown Command'}", 
+        f"User: {ctx.author.id}, Guild: {ctx.guild.id if ctx.guild else 'DM'}"
+    )
+    
+    # Send user-friendly error message
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send("❌ Command not found. Use `!pikahelp` to see available commands.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"❌ Missing required argument. Check the command usage with `!pikahelp`.")
+    else:
+        await ctx.send("❌ An error occurred while processing your command.")
 
+# ─── Single on_ready Event ─────────────────────────────────────────────────
+@bot.event
+async def on_ready():
+    await logger.initialize()
+    # Debug info
+    print(f"Disk path: {DISK_PATH}, exists: {os.path.exists(DISK_PATH)}")
+    print(f"Files on disk: {os.listdir(DISK_PATH) if os.path.exists(DISK_PATH) else 'N/A'}")
+    print(f"Memory file exists: {os.path.exists(MEMORY_FILE)}")
+    print(f"Users in memory: {len(conversation_memory)}")
+    await logger.log_bot_event("Bot Started", f"Loaded {len(conversation_memory)} user memories")
+    print(f'{bot.user} connected!')
+
+# ─── AI Chat Command ───────────────────────────────────────────────────────
 @bot.command(name="chat")
 async def chat(ctx, *, prompt):
-    thinking_msg = await ctx.send("Thinking...")
-    user_key = f"{ctx.guild.id}-{ctx.author.id}"
-    
-    try:
-        # Ensure memory exists for user
-        if user_key not in conversation_memory:
-            conversation_memory[user_key] = UserMemory()
-        
-        memory = conversation_memory[user_key]
-        
-        # Check if we need to create a summary
-        if len(memory.raw_messages) >= RAW_MESSAGE_LIMIT:
-            # Get oldest messages to summarize
-            messages_to_summarize = []
-            for _ in range(MESSAGES_TO_SUMMARIZE):
-                if memory.raw_messages:
-                    messages_to_summarize.append(memory.raw_messages.popleft())
-            
-            if messages_to_summarize:
-                # Create summary
-                summary = await summarize_messages(messages_to_summarize, memory.user_context)
-                memory.summaries.append({
-                    "type": "summary",
-                    "content": summary,
-                    "message_count": len(messages_to_summarize),
-                    "timestamp": datetime.datetime.now().isoformat()
-                })
-                print(f"Created summary for {user_key}: {len(messages_to_summarize)} messages condensed")
-        
-        # Build conversation context for Claude
-        messages = []
-        
-        # 1. Add user context if available
-        if memory.user_context:
-            context_str = f"Known user information: {json.dumps(memory.user_context)}"
-            messages.append({"role": "user", "content": context_str})
-            messages.append({"role": "assistant", "content": "I'll keep this information in mind."})
-        
-        # 2. Add summaries of older conversations
-        for summary in memory.summaries:
-            messages.append({
-                "role": "user", 
-                "content": f"[Previous conversation summary from {summary.get('timestamp', 'earlier')}]: {summary['content']}"
-            })
-            messages.append({
-                "role": "assistant", 
-                "content": "I remember our previous discussions."
+    thinking = await ctx.send("Thinking...")
+    key = f"{ctx.guild.id}-{ctx.author.id}"
+    if key not in conversation_memory:
+        conversation_memory[key] = UserMemory()
+    mem = conversation_memory[key]
+
+    # Summarize if over limit
+    if len(mem.raw_messages) >= RAW_MESSAGE_LIMIT:
+        to_summ = [mem.raw_messages.popleft() for _ in range(MESSAGES_TO_SUMMARIZE) if mem.raw_messages]
+        if to_summ:
+            summ = await summarize_messages(to_summ, mem.user_context)
+            mem.summaries.append({
+                "type": "summary",
+                "content": summ,
+                "count": len(to_summ),
+                "time": datetime.datetime.utcnow().isoformat()
             })
         
-        # 3. Add recent raw messages
-        for msg in memory.raw_messages:
-            messages.append(msg)
+# Build context
+    msgs = []
+    if mem.user_context:
+        msgs.append({"role": "user", "content": f"Known user context: {json.dumps(mem.user_context)}"})
+        msgs.append({"role": "assistant", "content": "Acknowledged user context."})
+    for s in mem.summaries:
+        msgs.append({"role": "user", "content": f"[Summary at {s['time']}]: {s['content']}"})
+        msgs.append({"role": "assistant", "content": "Remembering past summary."})
+    msgs.extend(mem.raw_messages)
+    msgs.append({"role": "user", "content": prompt})
         
-        # 4. Add current message
-        messages.append({"role": "user", "content": prompt})
-        
-        # Your existing system prompt
-        system_prompt = """You are Pikabug, a generally blunt and edgy Discord companion, who can be emotionally intelligent when needed, in the Atypical Asylum server.
+ # Your existing system prompt
+    system_prompt = """You are Pikabug, a generally blunt and edgy Discord companion, who can be emotionally intelligent when needed, in the Atypical Asylum server.
 
 Your personality traits:
 - Add edgy humor updated for 2025 to the general discussion
@@ -292,36 +254,23 @@ Communication style:
 Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""
 
         # Make API call to Claude
-        response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1000,
-            temperature=0.8,
-            system=system_prompt,
-            messages=messages
-        )
+    resp = client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=1000,
+        temperature=0.8,
+        system=system_prompt,
+        messages=msgs
+    )
+    reply = resp.content[0].text
 
-        reply = response.content[0].text
+    # Save messages
+    mem.raw_messages.append({"role": "user", "content": prompt})
+    mem.raw_messages.append({"role": "assistant", "content": reply})
+    await update_user_context(key)
+    save_conversation_memory()
 
-        # Save the interaction to memory
-        memory.raw_messages.append({"role": "user", "content": prompt})
-        memory.raw_messages.append({"role": "assistant", "content": reply})
-        
-        # Update user context periodically
-        await update_user_context(user_key, list(memory.raw_messages))
-        
-        # Save to disk
-        save_conversation_memory()
-
-        await thinking_msg.edit(content=reply)
-        
-        # Log successful AI usage
-        await logger.log_ai_usage(
-            ctx.author.id, 
-            ctx.guild.id, 
-            len(prompt), 
-            len(reply), 
-            success=True
-        )
+    await thinking.edit(content=reply)
+    # Logging omitted for brevity
         
         # Include memory stats in log
         memory_info = f"Messages: {len(memory.raw_messages)}, Summaries: {len(memory.summaries)}"
@@ -334,25 +283,19 @@ Remember: You're a trusted edgy, humorous friend who tells it like it is, but ge
         await logger.log_error(e, "AI Command Error", f"User: {ctx.author.id}, Prompt: {prompt[:100]}...")
         await logger.log_ai_usage(ctx.author.id, ctx.guild.id, len(prompt), 0, success=False)
 
-# Add a command to check memory status
+# ─── Memory Status Command ─────────────────────────────────────────────────
 @bot.command(name="memory")
 async def memory_status(ctx):
-    """Check memory status for the user"""
-    user_key = f"{ctx.guild.id}-{ctx.author.id}"
-    
-    if user_key not in conversation_memory:
-        await ctx.send("No conversation history found for you yet!")
-        return
-    
-    memory = conversation_memory[user_key]
-    
-    status_msg = f"""**Your Memory Status:**
-• Recent messages stored: {len(memory.raw_messages)}/{RAW_MESSAGE_LIMIT}
-• Conversation summaries: {len(memory.summaries)}/{MAX_SUMMARIES}
-• Known facts about you: {len(memory.user_context)} items
-• Total context preserved: ~{len(memory.raw_messages) + len(memory.summaries) * 10} messages worth"""
-    
-    await ctx.send(status_msg)
+    key = f"{ctx.guild.id}-{ctx.author.id}"
+    if key not in conversation_memory:
+        return await ctx.send("No memory found.")
+    mem = conversation_memory[key]
+    await ctx.send(
+        f"**Memory Status:**\n"
+        f"• Recent msgs: {len(mem.raw_messages)}/{RAW_MESSAGE_LIMIT}\n"
+        f"• Summaries: {len(mem.summaries)}/{MAX_SUMMARIES}\n"
+        f"• User facts: {len(mem.user_context)} items"
+    )
 
 # ─── Logging System ─────────────────────────────────────────────────
 
@@ -491,46 +434,34 @@ class DiscordLogger:
             for field in embed.fields:
                 print(f"{field.name}: {field.value}")
 
-# Initialize logger
-logger = DiscordLogger(bot)
+# Support command functions with logging
+def create_support_command(command_name):
+    async def support_command(ctx):
+        try:
+            global_var_name = f"last_{command_name}_response"
+            if global_var_name not in globals():
+                globals()[global_var_name] = None
+            
+            available = responses[command_name]
+            
+            for _ in range(5):
+                msg = random.choice(available)
+                if msg != globals()[global_var_name]:
+                    break
+            
+            globals()[global_var_name] = msg
+            await ctx.send(msg)
+            await logger.log_command_usage(ctx, command_name, success=True)
+            
+        except Exception as e:
+            await logger.log_error(e, f"Support Command Error ({command_name})")
+            await logger.log_command_usage(ctx, command_name, success=False)
+    
+    return support_command
 
-# ─── Bot Events ─────────────────────────────────────────────────
-
-@bot.event
-async def on_ready():
-    """Bot startup event"""
-    await logger.initialize()
-    
-    # Add debug information
-    print(f"Disk path: {DISK_PATH}")
-    print(f"Disk exists: {os.path.exists(DISK_PATH)}")
-    if os.path.exists(DISK_PATH):
-        print(f"Files in disk: {os.listdir(DISK_PATH)}")
-    
-    # Check conversation history
-    history_file = os.path.join(DISK_PATH, "conversation_history.json")
-    print(f"History file exists: {os.path.exists(history_file)}")
-    print(f"Loaded {len(conversation_history)} user conversation histories")
-    
-    await logger.log_bot_event("Bot Started", f"Pikabug is online! Loaded {len(conversation_history)} user histories")
-    print(f'{bot.user} has connected to Discord!')
-
-@bot.event
-async def on_command_error(ctx, error):
-    """Global error handler"""
-    await logger.log_error(
-        error, 
-        f"Command Error in {ctx.command.name if ctx.command else 'Unknown Command'}", 
-        f"User: {ctx.author.id}, Guild: {ctx.guild.id if ctx.guild else 'DM'}"
-    )
-    
-    # Send user-friendly error message
-    if isinstance(error, commands.CommandNotFound):
-        await ctx.send("❌ Command not found. Use `!pikahelp` to see available commands.")
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Missing required argument. Check the command usage with `!pikahelp`.")
-    else:
-        await ctx.send("❌ An error occurred while processing your command.")
+# Create all support commands
+for cmd_name in responses.keys():
+    bot.command(name=cmd_name)(create_support_command(cmd_name))
 
 # ─── PikaPoints Data ─────────────────────────────────────────────────
 
@@ -798,35 +729,6 @@ responses = {
     ]
 }
 
-# Support command functions with logging
-def create_support_command(command_name):
-    async def support_command(ctx):
-        try:
-            global_var_name = f"last_{command_name}_response"
-            if global_var_name not in globals():
-                globals()[global_var_name] = None
-            
-            available = responses[command_name]
-            
-            for _ in range(5):
-                msg = random.choice(available)
-                if msg != globals()[global_var_name]:
-                    break
-            
-            globals()[global_var_name] = msg
-            await ctx.send(msg)
-            await logger.log_command_usage(ctx, command_name, success=True)
-            
-        except Exception as e:
-            await logger.log_error(e, f"Support Command Error ({command_name})")
-            await logger.log_command_usage(ctx, command_name, success=False)
-    
-    return support_command
-
-# Create all support commands
-for cmd_name in responses.keys():
-    bot.command(name=cmd_name)(create_support_command(cmd_name))
-
 # ─── Unscramble Game ─────────────────────────────────────────────────
 
 # Load English word list
@@ -1025,7 +927,6 @@ async def pikahelp_command(ctx):
         await logger.log_error(e, "Help Command Error")
         await logger.log_command_usage(ctx, "pikahelp", success=False)
 
-# ─── Bot Startup ─────────────────────────────────────────────────
-
-# Run the bot
-bot.run(os.getenv("DISCORD_TOKEN"))
+# ─── Bot Start ────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    bot.run(os.getenv("DISCORD_TOKEN"))

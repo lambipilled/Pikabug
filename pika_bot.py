@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from collections import deque, defaultdict
 from typing import Dict, List
-from anthropic import Anthropic
 
 # ─── Load Environment Variables ─────────────────────────────────────────────
 load_dotenv()
@@ -157,7 +156,7 @@ class DiscordLogger:
 # ─── Global Memory and AI Client ───────────────────────────────────────────
 conversation_memory: Dict[str, UserMemory] = {}
 
-client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def load_conversation_memory() -> Dict[str, UserMemory]:
     if os.path.exists(MEMORY_FILE):
@@ -194,13 +193,16 @@ Current context: {json.dumps(user_context)}
 Segment:
 {conversation_text}"""
     try:
-        resp = client.messages.create(
-            model="claude-3-haiku-20240307",
-            max_tokens=200,
-            temperature=0.3,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return resp.content[0].text
+response = client.chat.completions.create(
+    model="gpt-4o",  # or "gpt-4-turbo" or another available model
+    messages=[
+        {"role": "system", "content": system_prompt},
+        *msgs  # msgs is your list of {"role": ..., "content": ...}
+    ],
+    max_tokens=1000,
+    temperature=0.8,
+)
+reply = response.choices[0].message.content
     except Exception as e:
         print(f"Summary error: {e}")
         return f"Summary: {len(messages)} messages about various topics."
@@ -220,14 +222,16 @@ Known context: {json.dumps(memory.user_context)}
 Recent conversation:
 {conv}"""
     try:
-        resp = client.messages.create(
-            model="claude-3-haiku-20240307",
-            max_tokens=300,
-            temperature=0.3,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        import re
-        match = re.search(r'\{.*\}', resp.content[0].text, re.DOTALL)
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {"role": "system", "content": "You are Pikabug, an edgy assistant who can be empathetic when needed."},
+        {"role": "user", "content": prompt}
+    ],
+    max_tokens=200,
+    temperature=0.8,
+)
+return response.choices[0].message.content
         if match:
             new_ctx = json.loads(match.group())
             memory.user_context.update(new_ctx)
@@ -330,14 +334,16 @@ Communication style:
 
 Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""
 
-        resp = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1000,
-            temperature=0.8,
-            system=system_prompt,
-            messages=msgs
-        )
-        reply = resp.content[0].text
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {"role": "system", "content": "You are Pikabug, an edgy assistant who can be empathetic when needed."},
+        {"role": "user", "content": prompt}
+    ],
+    max_tokens=200,
+    temperature=0.8,
+)
+return response.choices[0].message.content
 
         mem.raw_messages.append({"role": "user", "content": prompt})
         mem.raw_messages.append({"role": "assistant", "content": reply})
@@ -466,7 +472,7 @@ async def prefixgame(ctx):
     except Exception as e:
         await logger.log_error(e, "Prefix Game Error")
         await logger.log_command_usage(ctx, "prefixgame", success=False)
-        
+
         # ─── Journal System ─────────────────────────────────────────────────
 
 journal_prompts = [

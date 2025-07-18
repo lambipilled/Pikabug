@@ -20,7 +20,6 @@ import re
 with open("words_alpha.txt", encoding="utf-8") as f:
     valid_words = set(line.strip().lower() for line in f if line.strip())
 
-
 # ─── Configuration ─────────────────────────────────────────────────
 # Session-only conversation history (not saved to disk)
 conversation_history = {}
@@ -391,8 +390,8 @@ async def prefixgame(ctx):
         # Collect submissions
         submissions: Dict[discord.Member, str] = {}
 
-    while True:
-        try:
+        while True:
+            try:
                 msg = await bot.wait_for("message", timeout=12.0, check=lambda m: 
                     m.channel == ctx.channel and
                     not m.author.bot and
@@ -406,10 +405,10 @@ async def prefixgame(ctx):
                 prev = submissions.get(msg.author)
                 if prev is None or len(word) > len(prev):
                     submissions[msg.author] = word
-        except asyncio.TimeoutError:
+            except asyncio.TimeoutError:
                 break
 
-    if not submissions:
+        if not submissions:
             await ctx.send("⏲ Time's up! No valid entries were submitted.")
             await logger.log_command_usage(
                 ctx,
@@ -417,24 +416,24 @@ async def prefixgame(ctx):
                 success=True,
                 extra_info="No submissions"
             )
-        return
+            return
 
         # Determine winner and award points
         winner, winning_word = max(submissions.items(), key=lambda kv: len(kv[1]))
-    guild_id = str(ctx.guild.id)
-    user_id = str(winner.id)
-    record = get_user_record(guild_id, user_id)
-    record["points"] += PREFIXGAME_POINTS
-    record["prefixgame_submissions"] += 1
+        guild_id = str(ctx.guild.id)
+        user_id = str(winner.id)
+        record = get_user_record(guild_id, user_id)
+        record["points"] += PREFIXGAME_POINTS
+        record["prefixgame_submissions"] += 1
         save_pikapoints(pika_data)
 
         # Send results
-    await ctx.send(
+        await ctx.send(
             f"🏆 **{winner.display_name}** wins with **{winning_word}** ({len(winning_word)} letters)!\n"
-        f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
-        f"• Total Points: **{record['points']}**\n"
-        f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
-    )
+            f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
+            f"• Total Points: **{record['points']}**\n"
+            f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
+        )
 
         await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info=f"Winner: {winner.display_name}")
 
@@ -567,9 +566,6 @@ def load_wordsearch_words():
 
 wordsearch_words = load_wordsearch_words()
 
-import string
-from collections import deque
-
 # Track active word search games per user
 active_wordsearch_games = {}
 wordsearch_word_history = deque(maxlen=50)  # Track last 50 words used
@@ -696,7 +692,7 @@ async def endwordsearch(ctx):
     user_id = ctx.author.id
     if user_id in active_wordsearch_games:
         game = active_wordsearch_games[user_id]
-        await ctx.send(f"🛑 Word search ended early. The hidden words were: **{', '.join(game.words)}**")
+        await ctx.send(f"🛑 Word search ended early. The hidden words were: **{','.}
         del active_wordsearch_games[user_id]
     else:
         await ctx.send("You don't have an active word search game.")

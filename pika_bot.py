@@ -280,29 +280,32 @@ def is_workshop_channel(channel):
 
 @bot.event
 async def on_message(message):
-    # Award workshop points if in the correct channel and not a bot
+    # Award workshop points if in the correct channel, not a bot, and message contains a valid weekday
+    valid_days = {"monday", "tuesday", "thursday", "friday"}
     if (
         message.guild is not None and
         is_workshop_channel(message.channel) and
         not message.author.bot
     ):
-        guild_id = str(message.guild.id)
-        user_id = str(message.author.id)
-        record = get_user_record(guild_id, user_id)
-        record['points'] += WORKSHOP_POINTS
-        if 'workshop_submissions' not in record:
-            record['workshop_submissions'] = 0
-        record['workshop_submissions'] += 1
-        save_pikapoints(pika_data)
-        try:
-            await message.channel.send(
-                f"🎉 {message.author.mention}, you earned **{WORKSHOP_POINTS}** PikaPoints for participating in the weekly workshop!\n"
-                f"• **Total Points:** {record['points']}\n"
-                f"• **Workshop Submissions:** {record['workshop_submissions']}"
-            )
-            await logger.log_command_usage(message, "workshop_auto_award", success=True, extra_info="Workshop message detected.")
-        except Exception as e:
-            await logger.log_error(e, "Workshop Points Award Error")
+        content_lower = message.content.lower()
+        if any(day in content_lower for day in valid_days):
+            guild_id = str(message.guild.id)
+            user_id = str(message.author.id)
+            record = get_user_record(guild_id, user_id)
+            record['points'] += WORKSHOP_POINTS
+            if 'workshop_submissions' not in record:
+                record['workshop_submissions'] = 0
+            record['workshop_submissions'] += 1
+            save_pikapoints(pika_data)
+            try:
+                await message.channel.send(
+                    f"🎉 {message.author.mention}, you earned **{WORKSHOP_POINTS}** PikaPoints for participating in the weekly workshop!\n"
+                    f"• **Total Points:** {record['points']}\n"
+                    f"• **Workshop Submissions:** {record['workshop_submissions']}"
+                )
+                await logger.log_command_usage(message, "workshop_auto_award", success=True, extra_info="Workshop message detected.")
+            except Exception as e:
+                await logger.log_error(e, "Workshop Points Award Error")
     # Don't forget to process commands as usual
     await bot.process_commands(message)
 

@@ -5,6 +5,7 @@ import json
 import os
 import traceback
 import datetime
+import time
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 load_dotenv()
@@ -54,17 +55,15 @@ class DiscordLogger:
         """Log command usage with context"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-        
         embed = discord.Embed(
             title=f"Command: {command_name}",
-            color=0x00ff00,
+            color=0x00ff00 if success else 0xff0000,
             timestamp=datetime.datetime.now()
         )
         
         embed.add_field(name="User", value=f"{ctx.author.mention} ({ctx.author.id})", inline=True)
         embed.add_field(name="Guild", value=f"{ctx.guild.name} ({ctx.guild.id})", inline=True)
         embed.add_field(name="Channel", value=f"#{ctx.channel.name} ({ctx.channel.id})", inline=True)
-        
         
         if extra_info:
             embed.add_field(name="Details", value=extra_info[:1024], inline=False)
@@ -96,7 +95,6 @@ class DiscordLogger:
         
         await self._send_log(embed)
     
-    
     async def log_ai_usage(self, user_id, guild_id, prompt_length, response_length, success=True):
         """Log AI command usage"""
         embed = discord.Embed(
@@ -125,6 +123,37 @@ class DiscordLogger:
         
         await self._send_log(embed)
     
+    async def log_game_result(self, game_type, winner_id, guild_id, extra_info=""):
+        """Log game results"""
+        embed = discord.Embed(
+            title=f"🎮 Game Result: {game_type}",
+            color=0x00ff00,
+            timestamp=datetime.datetime.now()
+        )
+        
+        embed.add_field(name="Winner ID", value=str(winner_id), inline=True)
+        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+        if extra_info:
+            embed.add_field(name="Details", value=extra_info[:1024], inline=False)
+        
+        await self._send_log(embed)
+    
+    async def log_points_award(self, user_id, guild_id, points, reason, total_points):
+        """Log points awards"""
+        embed = discord.Embed(
+            title="💰 Points Awarded",
+            color=0xffd700,
+            timestamp=datetime.datetime.now()
+        )
+        
+        embed.add_field(name="User ID", value=str(user_id), inline=True)
+        embed.add_field(name="Guild ID", value=str(guild_id), inline=True)
+        embed.add_field(name="Points Awarded", value=str(points), inline=True)
+        embed.add_field(name="Reason", value=reason, inline=True)
+        embed.add_field(name="Total Points", value=str(total_points), inline=True)
+        
+        await self._send_log(embed)
+    
     async def _send_log(self, embed):
         """Internal method to send log to Discord channel"""
         if self.log_channel:
@@ -141,6 +170,36 @@ class DiscordLogger:
 # Initialize logger
 logger = DiscordLogger(bot)
 
+# ─── Hot Take System Variables ─────────────────────────────────────────────────
+HOT_TAKE_CHANNEL_ID = 1392813388286918696
+HOT_TAKE_FILE = os.path.join(os.path.dirname(__file__), "hot_takes.txt")
+HOT_TAKE_STATE_FILE = os.path.join(DISK_PATH, "hot_take_state.json")
+HOT_TAKE_INTERVAL = 60 * 60 * 12  # 12 hours in seconds
+
+# Load hot takes
+with open(HOT_TAKE_FILE, encoding="utf-8") as f:
+    hot_takes = [line.strip() for line in f if line.strip()]
+
+def load_hot_take_state():
+    if not os.path.exists(HOT_TAKE_STATE_FILE):
+        return {"last_sent": 0, "last_index": -1, "order": list(range(len(hot_takes)))}
+    with open(HOT_TAKE_STATE_FILE, "r") as f:
+        return json.load(f)
+
+def save_hot_take_state(state):
+    with open(HOT_TAKE_STATE_FILE, "w") as f:
+        json.dump(state, f)
+        f.flush()
+        os.fsync(f.fileno())
+
+hot_take_state = load_hot_take_state()
+
+# Shuffle order if needed
+if not hot_take_state.get("order") or len(hot_take_state["order"]) != len(hot_takes):
+    hot_take_state["order"] = list(range(len(hot_takes)))
+    random.shuffle(hot_take_state["order"])
+    save_hot_take_state(hot_take_state)
+
 # ─── Bot Events ─────────────────────────────────────────────────
 
 @bot.event
@@ -153,6 +212,10 @@ async def on_ready():
     print(f'Disk path exists: {os.path.exists(DISK_PATH)}')
     if os.path.exists(DISK_PATH):
         print(f'Files in disk: {os.listdir(DISK_PATH)}')
+    
+    # Start the hot take task if not already running
+    if not send_hot_take.is_running():
+        send_hot_take.start()
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -332,7 +395,7 @@ for w in valid_words:
         p = w[:3]               # extract the 3‐letter prefix
         prefix_map[p].append(w)
 
-# ─── Filter to “common” prefixes ────────────────────────────────
+# ─── Filter to "common" prefixes ────────────────────────────────
 MIN_WORDS_PER_PREFIX = 5
 common_prefixes: List[str] = [
     p for p, lst in prefix_map.items()
@@ -360,7 +423,7 @@ async def prefixgame(ctx):
                 )
                 word = msg.content.strip().lower()
                 if word not in valid_words:
-                    await ctx.send(f"{msg.author.mention} ❌ '{word}' isn’t a valid English word.")
+                    await ctx.send(f"{msg.author.mention} ❌ '{word}' isn't a valid English word.")
                     continue
                 prev = submissions.get(msg.author)
                 if prev is None or len(word) > len(prev):
@@ -369,7 +432,7 @@ async def prefixgame(ctx):
                 break
 
         if not submissions:
-            await ctx.send("⏲ Time’s up! No valid entries were submitted.")
+            await ctx.send("⏲ Time's up! No valid entries were submitted.")
             await logger.log_command_usage(
                 ctx,
                 "prefixgame",
@@ -394,6 +457,8 @@ async def prefixgame(ctx):
             f"• Total Points: **{record['points']}**\n"
             f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
         )
+        
+        await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info=f"Winner: {winner.display_name}")
 
     except Exception as e:
         await logger.log_error(e, "Prefix Game Error")
@@ -454,7 +519,6 @@ async def guess(ctx, user_guess: str):
             )
 
             # Log success
-            await logger.log_game_result("Unscramble", ctx.author.id, ctx.guild.id, f"Word: {current_word}")
             await logger.log_command_usage(ctx, "guess", success=True, extra_info=f"Correct guess: {user_guess}")
             
             current_word = None
@@ -535,7 +599,7 @@ prompt_prompts = [
     "What was the age you actually became an adult, if you feel you have.",
     "Who or what has had the greatest impact on your life, negatively or positively?",
     "What's one of the hardest things you've ever had to do? Do you regret it or did it need to be done?",
-    "If I could do it all over again, I would change..."
+    "If I could do it all over again, I would change...",
     "The teacher that had the most influence on my life was...",
     "Describe your parents, how you feel about them, and how they've influenced you.",
     "The long-lost childhood possession that I would love to see again is...",
@@ -563,11 +627,9 @@ prompt_prompts = [
     "My top 3 favorite foods are...",
     "My top 3 favorite colors are...",
     "My top 3 favorite animals are...",
-    "My top 3 favorite foods are...",
     "My top 3 favorite drinks are...",
     "My top 3 favorite desserts are...",
     "My top 3 favorite snacks are...",
-    "My top 3 favorite desserts are...",
     "My top 3 favorite celebrities are...",
     "What time period would you most like to live in and why?",
     "What would 16 year old think of current you?",
@@ -603,13 +665,10 @@ async def prompt(ctx):
             choices.remove(last_prompt_prompt)
         if not choices:
             choices = prompt_prompts.copy()
-
         prompt = random.choice(choices)
         last_prompt_prompt = prompt
-
         await ctx.send(f"📝 **Journaling prompt:** {prompt}")
         await logger.log_command_usage(ctx, "prompt", success=True, extra_info=f"Prompt: {prompt[:50]}...")
-        
     except Exception as e:
         await logger.log_error(e, "Journal Command Error")
         await logger.log_command_usage(ctx, "prompt", success=False)
@@ -641,7 +700,6 @@ async def write(ctx, *, entry: str):
 
 # ─── Vent System ─────────────────────────────────────────────────
 
-VENT_POINTS = 10
 VENT_FILE = os.path.join(DISK_PATH, "vent_submissions.json")
 
 def load_vent_submissions():
@@ -749,7 +807,7 @@ responses = {
         "The voice in your head with negative opinions about your body isn't your true thoughts, they're just loud and trained to try and taunt you. Don't let them.",
         "You probably have had way more admirers than you think. What you're used to seeing in the mirror every day could be a breathtakingly beautiful view to someone else.",
         "Your body is someone's dream. It is unique, and it is yours. Embrace it.",
-    ], 
+    ],  
     "comfort": [
         "It's okay to feel overwhelmed. Take a deep breath and know that you are not alone. Try reaching out to a resident, we all care about you.",
         "You are loved, even when it feels like the world is against you. Have you tried venting anonymously to Serenity?",
@@ -764,7 +822,7 @@ responses = {
         "Your feelings matter, and so do you. Please be kind to yourself, and take care of yourself by feeding your mind nurturing thoughts while you experience emotional turmoil. People care about you and want to see you thrive.",
         "You are not a burden. You are not annoying, useless, or whatever else your mind might be telling you. Your life can turn into a dream. It has meaning, even if you can't see it right now. Please talk to a resident, they might be able to help.",
         "I know it feels like the pain will never end, but it can get better. With desire comes suffering, but you don't have to suffer by yourself. You're not alone in how you're feeling even if it feels like it. How can we help?",
-        "Maybe you just want the pain to stop, not your life, and that's okay. Take a second to think about the things you've survived. Now think about how likely it is that you'll survive this, too, knowing how strong you are. You are capable, and full of grace and love that you were meant to share with others. Just look at you here.", 
+        "Maybe you just want the pain to stop, not your life, and that's okay. Take a second to think about the things you've survived. Now think about how likely it is that you'll survive this, too, knowing how strong you are. You are capable, and full of grace and love that you were meant to share with others. Just look at you here.",  
         "We often forget the many beautiful things we've experienced and seen because of the immense pain we feel. Remember all the small things that make you smile or laugh when you resort to thinking like this. You're valid, but you're also blinded. This world appreciates you, and I know there's lots of things you can appreciate about it.",
     ],
     "anxious": [
@@ -815,22 +873,17 @@ def create_support_command(command_name):
             global_var_name = f"last_{command_name}_response"
             if global_var_name not in globals():
                 globals()[global_var_name] = None
-            
             available = responses[command_name]
-            
             for _ in range(5):
                 msg = random.choice(available)
                 if msg != globals()[global_var_name]:
                     break
-            
             globals()[global_var_name] = msg
             await ctx.send(msg)
             await logger.log_command_usage(ctx, command_name, success=True)
-            
         except Exception as e:
             await logger.log_error(e, f"Support Command Error ({command_name})")
             await logger.log_command_usage(ctx, command_name, success=False)
-    
     return support_command
 
 # Create all support commands
@@ -855,6 +908,71 @@ async def creepfact(ctx):
     except Exception as e:
         await logger.log_error(e, "Creep Fact Error")
         await logger.log_command_usage(ctx, "creepfact", success=False)
+
+# ─── Hot Take Task ─────────────────────────────────────────────────
+
+@tasks.loop(seconds=HOT_TAKE_INTERVAL)
+async def send_hot_take():
+    """Send hot takes every 12 hours"""
+    try:
+        now = time.time()
+        
+        # Check if we should skip this iteration
+        if now - hot_take_state.get("last_sent", 0) < HOT_TAKE_INTERVAL:
+            return
+            
+        channel = bot.get_channel(HOT_TAKE_CHANNEL_ID)
+        if not channel:
+            print(f"Hot take channel {HOT_TAKE_CHANNEL_ID} not found")
+            return
+            
+        # Pick next hot take from our ordered list
+        order = hot_take_state["order"]
+        last_index = hot_take_state.get("last_index", -1)
+        
+        # Find the next index in our order
+        if last_index in order:
+            current_position = order.index(last_index)
+            next_position = (current_position + 1) % len(order)
+        else:
+            next_position = 0
+            
+        hot_take_index = order[next_position]
+        hot_take = hot_takes[hot_take_index]
+        
+        # Send the hot take
+        await channel.send(f"🔥 **Hot Take:** {hot_take}")
+        
+        # Update state
+        hot_take_state["last_sent"] = now
+        hot_take_state["last_index"] = hot_take_index
+        
+        # If we've gone through all hot takes, reshuffle for next cycle
+        if next_position == len(order) - 1:
+            random.shuffle(hot_take_state["order"])
+            
+        save_hot_take_state(hot_take_state)
+        
+        await logger.log_bot_event("Hot Take Sent", f"Sent hot take #{hot_take_index}")
+        
+    except Exception as e:
+        await logger.log_error(e, "Hot Take Task Error")
+
+@send_hot_take.before_loop
+async def before_send_hot_take():
+    """Wait until bot is ready and check if we should wait before sending"""
+    await bot.wait_until_ready()
+    
+    # Calculate time since last hot take
+    now = time.time()
+    last_sent = hot_take_state.get("last_sent", 0)
+    time_since_last = now - last_sent
+    
+    # If not enough time has passed, wait for the remaining time
+    if time_since_last < HOT_TAKE_INTERVAL:
+        wait_time = HOT_TAKE_INTERVAL - time_since_last
+        print(f"Waiting {wait_time:.0f} seconds before next hot take...")
+        await asyncio.sleep(wait_time)
 
 # ─── Points Command ─────────────────────────────────────────────────
 
@@ -896,14 +1014,14 @@ async def pikahelp_command(ctx):
 `!vent` - Vent, rant, and complain to Pikabug. This command gets Pika's attention first. Doing so gets you PikaPoints!
 `!venting` - Submit your vent to Pikabug for PikaPoints.
 `!points` - View how many PikaPoints you get from activity submissions.
-`!lonely` — Get a comforting message for loneliness. 
-`!dysmorphia` — Get a supportive message for body image issues. 
+`!lonely` — Get a comforting message for loneliness.  
+`!dysmorphia` — Get a supportive message for body image issues.  
 `!comfort` — Get a general comfort and support message.
-`!suicidal` — Get compassionate support for suicidal thoughts. 
-`!anxious` — Get calming and supportive messages for anxiety. 
-`!addiction` — Get supportive messages for addiction and substance use struggles. 
-`!attention` — Get messages to help with feelings of neglect or invisibility. 
-`!fuckoff` — A humorous response to annoying behavior.
+`!suicidal` — Get compassionate support for suicidal thoughts.  
+`!anxious` — Get calming and supportive messages for anxiety.  
+`!addiction` — Get supportive messages for addiction and substance use struggles.  
+`!attention` — Get messages to help with feelings of neglect or invisibility.  
+`!fuckoff` — A humorous response to annoying behavior. 
 `!unscramble` — Start the word unscrambling game. PikaPoints are rewarded for winners.
 `!guess [word]` — Guess the word from the last scramble.
 `!hint` — Get a hint for the current unscramble game; there are two hint options.
@@ -917,12 +1035,6 @@ async def pikahelp_command(ctx):
     except Exception as e:
         await logger.log_error(e, "Help Command Error")
         await logger.log_command_usage(ctx, "pikahelp", success=False)
-
-# ─── Save Memory Function (removed as memory is session-only) ───────────────
-
-def save_conversation_memory():
-    """No longer saves to disk - memory is session-only"""
-    pass
 
 # ─── Bot Startup ─────────────────────────────────────────────────
 

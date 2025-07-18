@@ -480,6 +480,14 @@ async def vent(ctx):
 @bot.command(name='venting')
 async def venting(ctx, *, entry: str):
     try:
+        # Try to delete the user's message for privacy
+        try:
+            await ctx.message.delete()
+        except discord.Forbidden:
+            await ctx.send("⚠️ I don't have permission to delete your message. Your vent is still private to me.")
+        except Exception:
+            pass  # Ignore other errors
+
         guild_id = str(ctx.guild.id)
         user_id = str(ctx.author.id)
         # Load or create user's vent list

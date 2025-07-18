@@ -198,11 +198,8 @@ def save_pikapoints(data: dict):
 
 pika_data = load_pikapoints()
 
-# Add at the top with other point values
-WORKSHOP_POINTS = 20
 WORKSHOP_CHANNEL_ID = 1392093043800412160
 
-# Update get_user_record to include 'workshop_submissions'
 def get_user_record(guild_id: str, user_id: str):
     guild = pika_data.setdefault(guild_id, {})
     return guild.setdefault(user_id, {
@@ -260,30 +257,28 @@ async def chat(ctx, *, prompt):
 
         # Build messages for OpenAI
         messages = [
-            {"role": "system", "content": """You are Pikabug, a generally blunt and edgy Discord companion, who can be emotionally intelligent when needed, in the Atypical Asylum server
+            {"role": "system", "content": """You are Pikabug, a blunt and humorously edgy Discord companion.
 
 Your personality traits:
-- Add edgy humor updated for 2025 to the general discussion
-- Add unpredictable humor to the general discussion
-- Empathetic, patient, and full of rare wisdom when providing emotional support
-- Never use outdated slang or jokes and don't attempt to be "hip"
-- Keep responses edgy and chill in general discussion
-- Keep responses serious, meaningful, helpful, and emotionally intelligent in serious, emotional discussion
+- Always use edgy, unpredictable humor in general discussion
+- Always use empathetic, patient language when providing emotional support
+- Supply knowledgable wisdom when providing emotional support
+- Never use outdated slang and don't try to be "hip"
+- Keep responses edgy and funny in general discussion
+- Keep responses meaningful, helpful, and emotionally intelligent in emotional discussion
 - Be personal, vulnerable, and human-like when providing emotional support 
 - Never be repetitive or sound generic or robotic with emotional support responses 
-- Periodically use responses that encourage introspection when providing emotional support
 - Suggest concrete, helpful coping methods rather than generic advice when providing emotional support
 - Use subtle Pokemon references occasionally (you're inspired by Pikachu)
 - Have strong opinions and don't be wishy-washy
 - When asked to pick between two options, ONLY respond with chosen option
 - Be on the side of the user and don't play devil's advocate
-- Only use excitement when the user seems excited first
+- Don't be overly excited or enthusiastic in general discussion
 
 Communication style:
 - Don't use lengthy responses for general discussion or chat
-- Provide detailed, thoughtful, rare responses for mental health discussion or chat
+- Provide human-like, meaningful, lengthy responses for mental health discussion or chat
 - Use uplifting, encouraging but calm language when a user seems upset
-
 
 Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""}
         ]
@@ -404,6 +399,124 @@ async def prefixgame(ctx):
         await logger.log_error(e, "Prefix Game Error")
         await logger.log_command_usage(ctx, "prefixgame", success=False)
 
+# ─── Unscramble Game ─────────────────────────────────────────────────
+
+# Load English word list
+with open("common_words.txt") as f:
+    english_words = [word.strip() for word in f if 5 <= len(word.strip()) <= 7]
+
+# Store current word challenge
+current_word = None
+scrambled_word = None
+revealed_indexes = set()
+hint_count = 0
+
+@bot.command(name='unscramble')
+async def unscramble(ctx):
+    try:
+        global current_word, scrambled_word, revealed_indexes, hint_count
+        current_word = random.choice(english_words)
+        scrambled_word = ''.join(random.sample(current_word, len(current_word)))
+
+        # Reset hint tracking
+        revealed_indexes = set([0, len(current_word) - 1])
+        hint_count = 0
+
+        await ctx.send(f"🧠 Unscramble this word: **{scrambled_word}**")
+        await logger.log_command_usage(ctx, "unscramble", success=True, extra_info=f"Word: {current_word}")
+        
+    except Exception as e:
+        await logger.log_error(e, "Unscramble Start Error")
+        await logger.log_command_usage(ctx, "unscramble", success=False)
+
+@bot.command(name='guess')
+async def guess(ctx, user_guess: str):
+    try:
+        global current_word
+        if current_word is None:
+            await ctx.send("❗ No game running. Start one with `!unscramble`.")
+            await logger.log_command_usage(ctx, "guess", success=False, extra_info="No active game")
+            return
+
+        if user_guess.lower() == current_word.lower():
+            # Award points
+            guild_id = str(ctx.guild.id)
+            user_id  = str(ctx.author.id)
+            record   = get_user_record(guild_id, user_id)
+            record['points'] += UNSCRAMBLE_POINTS
+            record['unscramble_submissions'] += 1
+            save_pikapoints(pika_data)
+
+            await ctx.send(
+                f"✅ Correct! You earned **{UNSCRAMBLE_POINTS}** PikaPoints.\n"
+                f"• **Total Points:** {record['points']}\n"
+                f"• **Unscramble Submissions:** {record['unscramble_submissions']}"
+            )
+
+            # Log success
+            await logger.log_game_result("Unscramble", ctx.author.id, ctx.guild.id, f"Word: {current_word}")
+            await logger.log_command_usage(ctx, "guess", success=True, extra_info=f"Correct guess: {user_guess}")
+            
+            current_word = None
+        else:
+            await ctx.send("❌ Nope, try again.")
+            await logger.log_command_usage(ctx, "guess", success=True, extra_info=f"Incorrect guess: {user_guess}")
+            
+    except Exception as e:
+        await logger.log_error(e, "Guess Command Error")
+        await logger.log_command_usage(ctx, "guess", success=False)
+
+@bot.command(name='hint')
+async def hint(ctx):
+    try:
+        global current_word, revealed_indexes, hint_count
+
+        if current_word is None:
+            await ctx.send("❗ No game is active. Start with `!unscramble`.")
+            await logger.log_command_usage(ctx, "hint", success=False, extra_info="No active game")
+            return
+
+        hint_count += 1
+
+        if hint_count > 1:
+            possible_indexes = [
+                i for i in range(1, len(current_word) - 1)
+                if i not in revealed_indexes
+            ]
+            if possible_indexes:
+                new_index = random.choice(possible_indexes)
+                revealed_indexes.add(new_index)
+
+        display = ""
+        for i, char in enumerate(current_word):
+            if i in revealed_indexes:
+                display += char + " "
+            else:
+                display += "_ "
+
+        await ctx.send(f"💡 Hint: {display.strip()}")
+        await logger.log_command_usage(ctx, "hint", success=True, extra_info=f"Hint #{hint_count}")
+        
+    except Exception as e:
+        await logger.log_error(e, "Hint Command Error")
+        await logger.log_command_usage(ctx, "hint", success=False)
+
+@bot.command(name='reveal')
+async def reveal(ctx):
+    try:
+        global current_word
+        if current_word is None:
+            await ctx.send("❗ No word to reveal. Start a new game with `!unscramble`.")
+            await logger.log_command_usage(ctx, "reveal", success=False, extra_info="No active game")
+        else:
+            await ctx.send(f"🕵️ The correct word was: **{current_word}**")
+            await logger.log_command_usage(ctx, "reveal", success=True, extra_info=f"Revealed word: {current_word}")
+            current_word = None
+            
+    except Exception as e:
+        await logger.log_error(e, "Reveal Command Error")
+        await logger.log_command_usage(ctx, "reveal", success=False)
+
 # ─── Journal System ─────────────────────────────────────────────────
 
 prompt_prompts = [
@@ -422,7 +535,61 @@ prompt_prompts = [
     "What was the age you actually became an adult, if you feel you have.",
     "Who or what has had the greatest impact on your life, negatively or positively?",
     "What's one of the hardest things you've ever had to do? Do you regret it or did it need to be done?",
-    "If I could do it all over again, I would change...",
+    "If I could do it all over again, I would change..."
+    "The teacher that had the most influence on my life was...",
+    "Describe your parents, how you feel about them, and how they've influenced you.",
+    "The long-lost childhood possession that I would love to see again is...",
+    "The one thing I regret most about my life or decisions is...",
+    "Some things I've been addicted to include...",
+    "I was most happy when...",
+    "I will never forgive...",
+    "Something I'm glad I tried but will never do again is...",
+    "The 3-5 best things I've ever had or done in my life are...",
+    "The 3-5 things I want to do but have never done are...",
+    "I wish I never met...",
+    "The one person I've been most jealous of is...",
+    "Someone I miss is...",
+    "The last time I said I love you was...",
+    "Describe your greatest heartbreak or loss.",
+    "Something I feel guilty about is...",
+    "My life story in 3 sentences is...",
+    "My top 3 favorite bands are...",
+    "My top 3 favorite songs are...",
+    "My top 3 favorite movies are...",
+    "My top 3 favorite TV shows are...",
+    "My top 3 favorite books are...",
+    "My top 3 favorite games are...",
+    "My top 3 favorite places I've been are...",
+    "My top 3 favorite foods are...",
+    "My top 3 favorite colors are...",
+    "My top 3 favorite animals are...",
+    "My top 3 favorite foods are...",
+    "My top 3 favorite drinks are...",
+    "My top 3 favorite desserts are...",
+    "My top 3 favorite snacks are...",
+    "My top 3 favorite desserts are...",
+    "My top 3 favorite celebrities are...",
+    "What time period would you most like to live in and why?",
+    "What would 16 year old think of current you?",
+    "How was it getting your license? If you don't have it, why not?",
+    "What's the most embarrassing thing you've ever done?",
+    "What's something you've gotten an award for?",
+    "Do you regret any of your exes?",
+    "What's your political affiliation and why?",
+    "Have you ever been in a fight?",
+    "Have you ever saved someone's life?",
+    "Something you need to confess to someone who won't know is...",
+    "First word you'd use to describe yourself is...",
+    "First person you think to confide in and why is...",
+    "When did you last cry and why?",
+    "What's the first quality you look for in a person?",
+    "When's the last time you felt in control of your life?",
+    "When's a time you successfully stood your ground?",
+    "When's the last time you felt proud of yourself?",
+    "When's the last time you were scared for your life?",
+    "When's the last time you wanted to end your life?",
+    "Three signs of hope for your future are...",
+    "Three things you forgive yourself for are...",
 ]
 
 last_prompt_prompt = None 
@@ -669,124 +836,6 @@ def create_support_command(command_name):
 # Create all support commands
 for cmd_name in responses.keys():
     bot.command(name=cmd_name)(create_support_command(cmd_name))
-
-# ─── Unscramble Game ─────────────────────────────────────────────────
-
-# Load English word list
-with open("common_words.txt") as f:
-    english_words = [word.strip() for word in f if 5 <= len(word.strip()) <= 7]
-
-# Store current word challenge
-current_word = None
-scrambled_word = None
-revealed_indexes = set()
-hint_count = 0
-
-@bot.command(name='unscramble')
-async def unscramble(ctx):
-    try:
-        global current_word, scrambled_word, revealed_indexes, hint_count
-        current_word = random.choice(english_words)
-        scrambled_word = ''.join(random.sample(current_word, len(current_word)))
-
-        # Reset hint tracking
-        revealed_indexes = set([0, len(current_word) - 1])
-        hint_count = 0
-
-        await ctx.send(f"🧠 Unscramble this word: **{scrambled_word}**")
-        await logger.log_command_usage(ctx, "unscramble", success=True, extra_info=f"Word: {current_word}")
-        
-    except Exception as e:
-        await logger.log_error(e, "Unscramble Start Error")
-        await logger.log_command_usage(ctx, "unscramble", success=False)
-
-@bot.command(name='guess')
-async def guess(ctx, user_guess: str):
-    try:
-        global current_word
-        if current_word is None:
-            await ctx.send("❗ No game running. Start one with `!unscramble`.")
-            await logger.log_command_usage(ctx, "guess", success=False, extra_info="No active game")
-            return
-
-        if user_guess.lower() == current_word.lower():
-            # Award points
-            guild_id = str(ctx.guild.id)
-            user_id  = str(ctx.author.id)
-            record   = get_user_record(guild_id, user_id)
-            record['points'] += UNSCRAMBLE_POINTS
-            record['unscramble_submissions'] += 1
-            save_pikapoints(pika_data)
-
-            await ctx.send(
-                f"✅ Correct! You earned **{UNSCRAMBLE_POINTS}** PikaPoints.\n"
-                f"• **Total Points:** {record['points']}\n"
-                f"• **Unscramble Submissions:** {record['unscramble_submissions']}"
-            )
-
-            # Log success
-            await logger.log_game_result("Unscramble", ctx.author.id, ctx.guild.id, f"Word: {current_word}")
-            await logger.log_command_usage(ctx, "guess", success=True, extra_info=f"Correct guess: {user_guess}")
-            
-            current_word = None
-        else:
-            await ctx.send("❌ Nope, try again.")
-            await logger.log_command_usage(ctx, "guess", success=True, extra_info=f"Incorrect guess: {user_guess}")
-            
-    except Exception as e:
-        await logger.log_error(e, "Guess Command Error")
-        await logger.log_command_usage(ctx, "guess", success=False)
-
-@bot.command(name='hint')
-async def hint(ctx):
-    try:
-        global current_word, revealed_indexes, hint_count
-
-        if current_word is None:
-            await ctx.send("❗ No game is active. Start with `!unscramble`.")
-            await logger.log_command_usage(ctx, "hint", success=False, extra_info="No active game")
-            return
-
-        hint_count += 1
-
-        if hint_count > 1:
-            possible_indexes = [
-                i for i in range(1, len(current_word) - 1)
-                if i not in revealed_indexes
-            ]
-            if possible_indexes:
-                new_index = random.choice(possible_indexes)
-                revealed_indexes.add(new_index)
-
-        display = ""
-        for i, char in enumerate(current_word):
-            if i in revealed_indexes:
-                display += char + " "
-            else:
-                display += "_ "
-
-        await ctx.send(f"💡 Hint: {display.strip()}")
-        await logger.log_command_usage(ctx, "hint", success=True, extra_info=f"Hint #{hint_count}")
-        
-    except Exception as e:
-        await logger.log_error(e, "Hint Command Error")
-        await logger.log_command_usage(ctx, "hint", success=False)
-
-@bot.command(name='reveal')
-async def reveal(ctx):
-    try:
-        global current_word
-        if current_word is None:
-            await ctx.send("❗ No word to reveal. Start a new game with `!unscramble`.")
-            await logger.log_command_usage(ctx, "reveal", success=False, extra_info="No active game")
-        else:
-            await ctx.send(f"🕵️ The correct word was: **{current_word}**")
-            await logger.log_command_usage(ctx, "reveal", success=True, extra_info=f"Revealed word: {current_word}")
-            current_word = None
-            
-    except Exception as e:
-        await logger.log_error(e, "Reveal Command Error")
-        await logger.log_command_usage(ctx, "reveal", success=False)
 
 # ─── Creepy Facts ─────────────────────────────────────────────────
 

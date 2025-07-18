@@ -240,7 +240,6 @@ async def on_message(message):
                 f"• **Total Points:** {record['points']}\n"
                 f"• **Workshop Submissions:** {record['workshop_submissions']}"
             )
-            await logger.log_points_award(message.author.id, message.guild.id, WORKSHOP_POINTS, "workshop", record["points"])
             await logger.log_command_usage(message, "workshop_auto_award", success=True, extra_info="Workshop message detected.")
         except Exception as e:
             await logger.log_error(e, "Workshop Points Award Error")
@@ -456,6 +455,8 @@ async def write(ctx, *, entry: str):
 
         record = get_user_record(guild_id, user_id)
         record['points'] += PROMPT_POINTS
+        if 'prompt_submissions' not in record:
+            record['prompt_submissions'] = 0
         record['prompt_submissions'] += 1
         save_pikapoints(pika_data)
 
@@ -465,8 +466,6 @@ async def write(ctx, *, entry: str):
             f"• **Journal Entries:** {record['prompt_submissions']}"
         )
         
-        # Log points award
-        await logger.log_points_award(ctx.author.id, ctx.guild.id, PROMPT_POINTS, "prompt", record["points"])
         await logger.log_command_usage(ctx, "write", success=True, extra_info=f"Entry length: {len(entry)} chars")
         
     except Exception as e:
@@ -727,7 +726,6 @@ async def guess(ctx, user_guess: str):
 
             # Log success
             await logger.log_game_result("Unscramble", ctx.author.id, ctx.guild.id, f"Word: {current_word}")
-            await logger.log_points_award(ctx.author.id, ctx.guild.id, UNSCRAMBLE_POINTS, "unscramble", record["points"])
             await logger.log_command_usage(ctx, "guess", success=True, extra_info=f"Correct guess: {user_guess}")
             
             current_word = None

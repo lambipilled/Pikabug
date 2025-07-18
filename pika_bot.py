@@ -384,8 +384,8 @@ common_prefixes: List[str] = [
 async def prefixgame(ctx):
     try:
         # Pick and announce a prefix
-    weights = [len(prefix_map[p]) for p in common_prefixes]
-    current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
+        weights = [len(prefix_map[p]) for p in common_prefixes]
+        current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
         await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
 
         # Collect submissions

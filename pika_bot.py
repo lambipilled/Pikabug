@@ -230,6 +230,8 @@ async def on_message(message):
         user_id = str(message.author.id)
         record = get_user_record(guild_id, user_id)
         record['points'] += WORKSHOP_POINTS
+        if 'workshop_submissions' not in record:
+            record['workshop_submissions'] = 0
         record['workshop_submissions'] += 1
         save_pikapoints(pika_data)
         try:

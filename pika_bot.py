@@ -12,6 +12,7 @@ load_dotenv()
 from openai import OpenAI
 from collections import defaultdict, deque
 from typing import Dict, List
+import re
 
 # ─── Load valid English words ────────────────────────────────────
 with open("words_alpha.txt", encoding="utf-8") as f:
@@ -287,28 +288,31 @@ async def on_message(message):
         user_id = message.author.id
         if user_id in active_wordsearch_games:
             game = active_wordsearch_games[user_id]
-            word_guess = message.content.strip().lower()
-            if len(word_guess) == 5 and word_guess.isalpha():
-                if game.check_word(word_guess):
-                    await message.channel.send(f"✅ Correct! You found **{word_guess}**!")
-                    if game.is_complete():
-                        guild_id = str(message.guild.id)
-                        user_id_str = str(message.author.id)
-                        record = get_user_record(guild_id, user_id_str)
-                        record['points'] += WORDSEARCH_POINTS
-                        record['wordsearch_submissions'] += 1
-                        save_pikapoints(pika_data)
-                        await message.channel.send(
-                            f"🎉 **Congratulations!** You found all the words!\n"
-                            f"You earned **{WORDSEARCH_POINTS}** PikaPoints!\n"
-                            f"• **Total Points:** {record['points']}\n"
-                            f"• **Word Search Games Completed:** {record['wordsearch_submissions']}"
-                        )
-                        del active_wordsearch_games[user_id]
-                else:
-                    await message.channel.send(f"❌ **{word_guess}** is not one of the hidden words or already found!")
-            else:
-                await message.channel.send(f"❌ Please enter a valid 5-letter word.")
+            # Allow multiple words in one message (split by space, comma, or newline)
+            guesses = [w.strip().lower() for w in re.split(r'[\s,]+', message.content) if w.strip()]
+            found_this_message = False
+            for word_guess in guesses:
+                if len(word_guess) == 5 and word_guess.isalpha():
+                    if game.check_word(word_guess):
+                        await message.channel.send(f"✅ Correct! You found **{word_guess}**!")
+                        found_this_message = True
+            if game.is_complete():
+                guild_id = str(message.guild.id)
+                user_id_str = str(message.author.id)
+                record = get_user_record(guild_id, user_id_str)
+                record['points'] += WORDSEARCH_POINTS
+                record['wordsearch_submissions'] += 1
+                save_pikapoints(pika_data)
+                await message.channel.send(
+                    f"🎉 **Congratulations!** You found all the words!\n"
+                    f"You earned **{WORDSEARCH_POINTS}** PikaPoints!\n"
+                    f"• **Total Points:** {record['points']}\n"
+                    f"• **Word Search Games Completed:** {record['wordsearch_submissions']}"
+                )
+                del active_wordsearch_games[user_id]
+                return  # End after completion
+            if not found_this_message:
+                await message.channel.send(f"❌ None of those are hidden words or they were already found!")
             return  # Don't process further if this was a wordsearch guess
     # --- Workshop points logic ---
     valid_days = {"monday", "tuesday", "thursday", "friday"}

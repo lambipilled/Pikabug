@@ -174,7 +174,8 @@ async def on_command_error(ctx, error):
 # ─── PikaPoints Data ─────────────────────────────────────────────────
 
 # PikaPoints reward values
-JOURNAL_POINTS = 15
+PROMPT_POINTS = 15
+VENT_POINTS = 10
 PREFIXGAME_POINTS = 5
 UNSCRAMBLE_POINTS = 5
 
@@ -201,9 +202,10 @@ def get_user_record(guild_id: str, user_id: str):
     guild = pika_data.setdefault(guild_id, {})
     return guild.setdefault(user_id, {
         "points": 0,
-        "journal_submissions": 0,
+        "prompt_submissions": 0,
+        "vent_submissions": 0,
         "prefixgame_submissions": 0,
-        "unscramble_submissions": 0
+        "unscramble_submissions": 0,
     })
 
 # ─── AI Chat Command ─────────────────────────────────────────────────
@@ -366,7 +368,7 @@ async def prefixgame(ctx):
 
 # ─── Journal System ─────────────────────────────────────────────────
 
-journal_prompts = [
+prompt_prompts = [
     "What were your childhood career dreams/goals? How do they compare to what you want to do now?",
     "Which year comes to mind when you think about the best nostalgia? Why did that year carry the best memories?",
     "Describe your childhood in one word, or a single phrase. If this inspires you to talk more about it, go ahead.",
@@ -385,27 +387,27 @@ journal_prompts = [
     "If I could do it all over again, I would change...",
 ]
 
-last_journal_prompt = None 
+last_prompt_prompt = None 
 
-@bot.command(name='journal')
-async def journal(ctx):
+@bot.command(name='prompt')
+async def prompt(ctx):
     try:
-        global last_journal_prompt
-        choices = journal_prompts.copy()
-        if last_journal_prompt in choices:
-            choices.remove(last_journal_prompt)
+        global last_prompt_prompt
+        choices = prompt_prompts.copy()
+        if last_prompt_prompt in choices:
+            choices.remove(last_prompt_prompt)
         if not choices:
-            choices = journal_prompts.copy()
+            choices = prompt_prompts.copy()
 
         prompt = random.choice(choices)
-        last_journal_prompt = prompt
+        last_prompt_prompt = prompt
 
         await ctx.send(f"📝 **Journaling prompt:** {prompt}")
-        await logger.log_command_usage(ctx, "journal", success=True, extra_info=f"Prompt: {prompt[:50]}...")
+        await logger.log_command_usage(ctx, "prompt", success=True, extra_info=f"Prompt: {prompt[:50]}...")
         
     except Exception as e:
         await logger.log_error(e, "Journal Command Error")
-        await logger.log_command_usage(ctx, "journal", success=False)
+        await logger.log_command_usage(ctx, "prompt", success=False)
 
 @bot.command(name='write')
 async def write(ctx, *, entry: str):
@@ -414,23 +416,100 @@ async def write(ctx, *, entry: str):
         user_id  = str(ctx.author.id)
 
         record = get_user_record(guild_id, user_id)
-        record['points'] += JOURNAL_POINTS
-        record['journal_submissions'] += 1
+        record['points'] += PROMPT_POINTS
+        record['prompt_submissions'] += 1
         save_pikapoints(pika_data)
 
         await ctx.send(
-            f"✅ Entry received! You earned **{JOURNAL_POINTS}** PikaPoints!\n"
+            f"✅ Entry received! You earned **{PROMPT_POINTS}** PikaPoints!\n"
             f"• **Total Points:** {record['points']}\n"
-            f"• **Journal Entries:** {record['journal_submissions']}"
+            f"• **Journal Entries:** {record['prompt_submissions']}"
         )
         
         # Log points award
-        await logger.log_points_award(ctx.author.id, ctx.guild.id, JOURNAL_POINTS, "journal", record["points"])
+        await logger.log_points_award(ctx.author.id, ctx.guild.id, PROMPT_POINTS, "prompt", record["points"])
         await logger.log_command_usage(ctx, "write", success=True, extra_info=f"Entry length: {len(entry)} chars")
         
     except Exception as e:
         await logger.log_error(e, "Write Command Error")
         await logger.log_command_usage(ctx, "write", success=False)
+
+# ─── Vent System ─────────────────────────────────────────────────
+
+VENT_POINTS = 10
+VENT_FILE = os.path.join(DISK_PATH, "vent_submissions.json")
+
+def load_vent_submissions():
+    if not os.path.exists(VENT_FILE):
+        with open(VENT_FILE, "w") as f:
+            json.dump({}, f)
+    with open(VENT_FILE, "r") as f:
+        return json.load(f)
+
+def save_vent_submissions(data: dict):
+    with open(VENT_FILE, "w") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+
+vent_data = load_vent_submissions()
+
+last_vent_message = None
+
+@bot.command(name='vent')
+async def vent(ctx):
+    try:
+        global last_vent_message
+        supportive_messages = [
+            "Hey, I'm proud of you for reaching out! I'm here to support you. Type your vent and submit it with `!venting [your message]`.",
+            "You can rant here, no judgment. When you're ready, use `!venting [your message]` to share.",
+            "Sometimes you just need to get it out, we get it. Use `!venting [your message]` to tell me what's up.",
+            "I'm here to listen. Let it all out, and know we're here for you. When you're ready, use `!venting [your message]` to share your thoughts."
+        ]
+        for _ in range(5):
+            msg = random.choice(supportive_messages)
+            if msg != last_vent_message:
+                break
+        last_vent_message = msg
+        await ctx.send(f"🫂 {msg}")
+        await logger.log_command_usage(ctx, "vent", success=True)
+    except Exception as e:
+        await logger.log_error(e, "Vent Command Error")
+        await logger.log_command_usage(ctx, "vent", success=False)
+
+@bot.command(name='venting')
+async def venting(ctx, *, entry: str):
+    try:
+        guild_id = str(ctx.guild.id)
+        user_id = str(ctx.author.id)
+        # Load or create user's vent list
+        if guild_id not in vent_data:
+            vent_data[guild_id] = {}
+        if user_id not in vent_data[guild_id]:
+            vent_data[guild_id][user_id] = []
+        # Save the vent entry
+        vent_data[guild_id][user_id].append({
+            "entry": entry,
+            "timestamp": datetime.datetime.utcnow().isoformat()
+        })
+        save_vent_submissions(vent_data)
+        # Award points
+        record = get_user_record(guild_id, user_id)
+        record['points'] += VENT_POINTS
+        if 'vent_submissions' not in record:
+            record['vent_submissions'] = 0
+        record['vent_submissions'] += 1
+        save_pikapoints(pika_data)
+        await ctx.send(
+            f"✅ Vent received! You earned **{VENT_POINTS}** PikaPoints.\n"
+            f"• **Total Points:** {record['points']}\n"
+            f"• **Vent Submissions:** {record['vent_submissions']}"
+        )
+        await logger.log_points_award(ctx.author.id, ctx.guild.id, VENT_POINTS, "vent", record["points"])
+        await logger.log_command_usage(ctx, "venting", success=True, extra_info=f"Entry length: {len(entry)} chars")
+    except Exception as e:
+        await logger.log_error(e, "Venting Command Error")
+        await logger.log_command_usage(ctx, "venting", success=False)
 
 # ─── Support Bot Commands ─────────────────────────────────────────────────
 
@@ -719,8 +798,10 @@ async def pikahelp_command(ctx):
 
 `!pikahelp` - Show list of Pikabug's commands.
 `!chat` - Triggers AI chat with Pikabug. Trained to make you laugh or comfort you during tough times. Memory lasts for current session only (up to 50 messages).
-`!journal` - Sends a journal prompt/question to answer to help with mindfulness. Submissions are rewarded with PikaPoints!
+`!prompt` - Sends a journal prompt/question to answer to help with mindfulness. Submissions are rewarded with PikaPoints!
 `!write` - Submits your response to the journal prompt/question. Insert it before your answer.
+`!vent` - Vent, rant, and complain to Pikabug. This command gets Pika's attention first. Doing so gets you PikaPoints!
+`!venting` - Submit your vent to Pikabug for PikaPoints.
 `!points` - View how many PikaPoints you get from activity submissions.
 `!lonely` — Get a comforting message for loneliness. 
 `!dysmorphia` — Get a supportive message for body image issues. 

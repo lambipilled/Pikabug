@@ -669,6 +669,16 @@ async def on_message(message):
     # --- Word Search Game message handler ---
     if not message.author.bot:
         user_id = message.author.id
+        # Handle !endwordsearch command for active game
+        if message.content.strip().lower() == '!endwordsearch':
+            if user_id in active_wordsearch_games:
+                game = active_wordsearch_games[user_id]
+                await message.channel.send(f"🛑 Word search ended early. The hidden words were: `{', '.join(game.words)}`")
+                del active_wordsearch_games[user_id]
+            else:
+                await message.channel.send("You don't have an active word search game.")
+            return
+        # Handle word guesses for active game
         if user_id in active_wordsearch_games:
             game = active_wordsearch_games[user_id]
             guesses = [w.strip().lower() for w in re.split(r'[\s,]+', message.content) if w.strip()]

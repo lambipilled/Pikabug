@@ -242,6 +242,7 @@ VENT_POINTS = 10
 PREFIXGAME_POINTS = 5
 UNSCRAMBLE_POINTS = 5
 WORKSHOP_POINTS = 20
+WORDSEARCH_POINTS = 5
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -272,6 +273,7 @@ def get_user_record(guild_id: str, user_id: str):
         "workshop_submissions": 0,
         "prefixgame_submissions": 0,
         "unscramble_submissions": 0,
+        "wordsearch_submissions": 0,
     })
 
 # Add event listener for awarding workshop points
@@ -1009,6 +1011,7 @@ async def pikahelp_command(ctx):
 `!hint` — Get a hint for the current unscramble game; there are two hint options.
 `!reveal` — Reveal the current word and end the round of the unscramble game.
 `!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix. PikaPoints are rewarded for winners.
+`!wordsearch` - Start a 5x5 word search game. Find two 5-7 letter words hidden in the grid.
 """
         await ctx.send(pikahelp_text)
         await logger.log_command_usage(ctx, "pikahelp", success=True)

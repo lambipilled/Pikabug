@@ -862,10 +862,8 @@ responses = {
     "fuckoff": [
         "You're not a vibe bro 😭",
         "NIGGAS BE SO ANNOYING BRO",
-        "Point and laugh, y'all.",
         "Someone ban this nigga",
         "Banned",
-        "Y'all hear somethin?",
     ]
 }
 
@@ -892,25 +890,6 @@ def create_support_command(command_name):
 # Create all support commands
 for cmd_name in responses.keys():
     bot.command(name=cmd_name)(create_support_command(cmd_name))
-
-# ─── Creepy Facts ─────────────────────────────────────────────────
-
-# Load creepy facts from file
-with open("creepy_facts.txt") as f:
-    facts = [line.strip() for line in f if line.strip()]
-
-CHANNEL_IDS = [1388158646973632685, 1388397019479146580]
-
-@bot.command(name="creepfact")
-async def creepfact(ctx):
-    try:
-        fact = random.choice(facts)
-        await ctx.send(fact)
-        await logger.log_command_usage(ctx, "creepfact", success=True)
-        
-    except Exception as e:
-        await logger.log_error(e, "Creep Fact Error")
-        await logger.log_command_usage(ctx, "creepfact", success=False)
 
 # ─── Hot Take Task ─────────────────────────────────────────────────
 
@@ -1030,7 +1009,6 @@ async def pikahelp_command(ctx):
 `!hint` — Get a hint for the current unscramble game; there are two hint options.
 `!reveal` — Reveal the current word and end the round of the unscramble game.
 `!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix. PikaPoints are rewarded for winners.
-`!creepfact` — Get a random creepy fact in the lounge or spam center.
 """
         await ctx.send(pikahelp_text)
         await logger.log_command_usage(ctx, "pikahelp", success=True)

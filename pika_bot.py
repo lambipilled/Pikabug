@@ -12,6 +12,10 @@ from openai import OpenAI
 from collections import defaultdict, deque
 from typing import Dict, List
 
+# ─── Load valid English words ────────────────────────────────────
+with open("words_alpha.txt", encoding="utf-8") as f:
+    valid_words = set(line.strip().lower() for line in f if line.strip())
+
 # ─── Configuration ─────────────────────────────────────────────────
 # Session-only conversation history (not saved to disk)
 conversation_history = {}
@@ -285,20 +289,17 @@ Remember: You're a trusted edgy, humorous friend who tells it like it is, but ge
 
 # ─── Word Games ─────────────────────────────────────────────────
 
-# Load word list
-with open("words_alpha.txt", "r") as f:
-    WORDS = set(line.strip().lower() for line in f)
-
-# Build prefix→words map
+# ─── Build prefix→words map from valid_words ─────────────────────
 prefix_map: Dict[str, List[str]] = defaultdict(list)
-for w in WORDS:
+for w in valid_words:
+    # only consider words at least 3 letters long
     if len(w) >= 3:
-        p = w[:3]
+        p = w[:3]               # extract the 3‐letter prefix
         prefix_map[p].append(w)
 
-# Filter to "common" prefixes
+# ─── Filter to “common” prefixes ────────────────────────────────
 MIN_WORDS_PER_PREFIX = 5
-common_prefixes = [
+common_prefixes: List[str] = [
     p for p, lst in prefix_map.items()
     if len(lst) >= MIN_WORDS_PER_PREFIX
 ]
@@ -313,18 +314,19 @@ async def prefixgame(ctx):
 
         # Collect submissions
         submissions: Dict[discord.Member, str] = {}
-        def check(m: discord.Message) -> bool:
-            return (
-                m.channel == ctx.channel
-                and not m.author.bot
-                and m.content.lower().startswith(current_prefix)
-                and len(m.content.strip()) > len(current_prefix)
-            )
 
         while True:
             try:
-                msg = await bot.wait_for("message", timeout=12.0, check=check)
+                msg = await bot.wait_for("message", timeout=12.0, check=lambda m: 
+                    m.channel == ctx.channel and
+                    not m.author.bot and
+                    m.content.lower().strip().startswith(current_prefix) and
+                    len(m.content.strip()) > len(current_prefix)
+                )
                 word = msg.content.strip().lower()
+                if word not in valid_words:
+                    await ctx.send(f"{msg.author.mention} ❌ '{word}' isn’t a valid English word.")
+                    continue
                 prev = submissions.get(msg.author)
                 if prev is None or len(word) > len(prev):
                     submissions[msg.author] = word
@@ -332,8 +334,13 @@ async def prefixgame(ctx):
                 break
 
         if not submissions:
-            await ctx.send("⏰ Time's up! No valid entries were submitted.")
-            await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info="No submissions")
+            await ctx.send("⏲ Time’s up! No valid entries were submitted.")
+            await logger.log_command_usage(
+                ctx,
+                "prefixgame",
+                success=True,
+                extra_info="No submissions"
+            )
             return
 
         # Determine winner and award points
@@ -352,11 +359,6 @@ async def prefixgame(ctx):
             f"• Total Points: **{record['points']}**\n"
             f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
         )
-        
-        # Log game result and points
-        await logger.log_game_result("Prefix Game", winner.id, ctx.guild.id, f"Word: {winning_word}")
-        await logger.log_points_award(winner.id, ctx.guild.id, PREFIXGAME_POINTS, "prefixgame", record["points"])
-        await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info=f"Winner: {winner.display_name}")
 
     except Exception as e:
         await logger.log_error(e, "Prefix Game Error")

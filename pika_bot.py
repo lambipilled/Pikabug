@@ -669,43 +669,57 @@ async def on_message(message):
     # --- Word Search Game message handler ---
     if not message.author.bot:
         user_id = message.author.id
-        # Handle !endwordsearch command for active game
-        if message.content.strip().lower() == '!endwordsearch':
-            if user_id in active_wordsearch_games:
-                game = active_wordsearch_games[user_id]
-                await message.channel.send(f"🛑 Word search ended early. The hidden words were: `{', '.join(game.words)}`")
-                del active_wordsearch_games[user_id]
-            else:
-                await message.channel.send("You don't have an active word search game.")
-            return
+        
         # Handle word guesses for active game
         if user_id in active_wordsearch_games:
             game = active_wordsearch_games[user_id]
+            
+            # Skip if message is a command
+            if message.content.startswith('!'):
+                await bot.process_commands(message)
+                return
+            
+            # Process word guesses
             guesses = [w.strip().lower() for w in re.split(r'[\s,]+', message.content) if w.strip()]
-            found_this_message = False
+            found_any = False
+            
             for word_guess in guesses:
                 if len(word_guess) == 5 and word_guess.isalpha():
                     if game.check_word(word_guess):
                         await message.channel.send(f"✅ Correct! You found **{word_guess}**!")
-                        found_this_message = True
-            if game.is_complete():
-                guild_id = str(message.guild.id)
-                user_id_str = str(message.author.id)
-                record = get_user_record(guild_id, user_id_str)
-                record['points'] += WORDSEARCH_POINTS
-                record['wordsearch_submissions'] += 1
-                save_pikapoints(pika_data)
-                await message.channel.send(
-                    f"🎉 **Congratulations!** You found all the words!\n"
-                    f"You earned **{WORDSEARCH_POINTS}** PikaPoints!\n"
-                    f"• **Total Points:** {record['points']}\n"
-                    f"• **Word Search Games Completed:** {record['wordsearch_submissions']}"
-                )
-                del active_wordsearch_games[user_id]
-                return  # End after completion
-            if not found_this_message:
+                        found_any = True
+                        
+                        # Check if game is complete after finding this word
+                        if game.is_complete():
+                            # Award points
+                            guild_id = str(message.guild.id)
+                            user_id_str = str(message.author.id)
+                            record = get_user_record(guild_id, user_id_str)
+                            record['points'] += WORDSEARCH_POINTS
+                            record['wordsearch_submissions'] += 1
+                            save_pikapoints(pika_data)
+                            
+                            await message.channel.send(
+                                f"🎉 **Congratulations!** You found all the words!\n"
+                                f"You earned **{WORDSEARCH_POINTS}** PikaPoints!\n"
+                                f"• **Total Points:** {record['points']}\n"
+                                f"• **Word Search Games Completed:** {record['wordsearch_submissions']}"
+                            )
+                            
+                            # Clean up the game
+                            del active_wordsearch_games[user_id]
+                            
+                            # Log the completion
+                            await logger.log_game_result("Word Search", user_id, guild_id, f"Words found: {', '.join(game.words)}")
+                            await logger.log_points_award(user_id, guild_id, WORDSEARCH_POINTS, "wordsearch", record["points"])
+                            return  # Exit after completion
+            
+            # Only show error if no words were found
+            if not found_any and any(len(g) == 5 and g.isalpha() for g in guesses):
                 await message.channel.send(f"❌ None of those are hidden words or they were already found!")
-            return  # Don't process further if this was a wordsearch guess
+            
+            return  # Don't process commands if this was a wordsearch guess
+    
     # --- Workshop points logic ---
     valid_days = {"monday", "tuesday", "thursday", "friday"}
     if (
@@ -732,7 +746,8 @@ async def on_message(message):
                 await logger.log_command_usage(message, "workshop_auto_award", success=True, extra_info="Workshop message detected.")
             except Exception as e:
                 await logger.log_error(e, "Workshop Points Award Error")
-    # Don't forget to process commands as usual
+    
+    # Process commands as usual
     await bot.process_commands(message)
 
 # ─── Journal System ─────────────────────────────────────────────────

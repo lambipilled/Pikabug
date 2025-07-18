@@ -282,7 +282,35 @@ def is_workshop_channel(channel):
 
 @bot.event
 async def on_message(message):
-    # Award workshop points if in the correct channel, not a bot, and message contains a valid weekday
+    # --- Word Search Game message handler ---
+    if not message.author.bot:
+        user_id = message.author.id
+        if user_id in active_wordsearch_games:
+            game = active_wordsearch_games[user_id]
+            word_guess = message.content.strip().lower()
+            if len(word_guess) == 5 and word_guess.isalpha():
+                if game.check_word(word_guess):
+                    await message.channel.send(f"✅ Correct! You found **{word_guess}**!")
+                    if game.is_complete():
+                        guild_id = str(message.guild.id)
+                        user_id_str = str(message.author.id)
+                        record = get_user_record(guild_id, user_id_str)
+                        record['points'] += WORDSEARCH_POINTS
+                        record['wordsearch_submissions'] += 1
+                        save_pikapoints(pika_data)
+                        await message.channel.send(
+                            f"🎉 **Congratulations!** You found all the words!\n"
+                            f"You earned **{WORDSEARCH_POINTS}** PikaPoints!\n"
+                            f"• **Total Points:** {record['points']}\n"
+                            f"• **Word Search Games Completed:** {record['wordsearch_submissions']}"
+                        )
+                        del active_wordsearch_games[user_id]
+                else:
+                    await message.channel.send(f"❌ **{word_guess}** is not one of the hidden words or already found!")
+            else:
+                await message.channel.send(f"❌ Please enter a valid 5-letter word.")
+            return  # Don't process further if this was a wordsearch guess
+    # --- Workshop points logic ---
     valid_days = {"monday", "tuesday", "thursday", "friday"}
     if (
         message.guild is not None and
@@ -585,6 +613,119 @@ async def reveal(ctx):
     except Exception as e:
         await logger.log_error(e, "Reveal Command Error")
         await logger.log_command_usage(ctx, "reveal", success=False)
+
+# --- Word Search Game (5x5, 5-letter words) ---
+
+# Add to pika points reward values if not present
+WORDSEARCH_POINTS = 5
+
+# Add to get_user_record if not present:
+# "wordsearch_submissions": 0,
+
+# Load 5-letter words for word search
+def load_wordsearch_words():
+    with open("common_words.txt") as f:
+        return [w.strip().lower() for w in f if len(w.strip()) == 5]
+wordsearch_words = load_wordsearch_words()
+
+import string
+from collections import deque
+
+# Track active word search games per user
+active_wordsearch_games = {}
+wordsearch_word_history = deque(maxlen=50)  # Track last 50 words used
+
+class WordSearchGame:
+    def __init__(self, words):
+        self.grid_size = 5
+        self.grid = [['' for _ in range(self.grid_size)] for _ in range(self.grid_size)]
+        self.words = [w.lower() for w in words]
+        self.found_words = set()
+        self._create_grid()
+
+    def _create_grid(self):
+        # Fill grid with random letters first
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                self.grid[i][j] = random.choice(string.ascii_lowercase)
+        # Directions: (row_delta, col_delta)
+        directions = [
+            (0, 1),   # horizontal right
+            (0, -1),  # horizontal left
+            (1, 0),   # vertical down
+            (-1, 0),  # vertical up
+            (1, 1),   # diagonal down-right
+            (-1, -1), # diagonal up-left
+            (1, -1),  # diagonal down-left
+            (-1, 1),  # diagonal up-right
+        ]
+        for word in self.words:
+            placed = False
+            attempts = 0
+            while not placed and attempts < 100:
+                attempts += 1
+                direction = random.choice(directions)
+                start_row = random.randint(0, self.grid_size - 1)
+                start_col = random.randint(0, self.grid_size - 1)
+                if self._can_place_word(word, start_row, start_col, direction):
+                    self._place_word(word, start_row, start_col, direction)
+                    placed = True
+
+    def _can_place_word(self, word, start_row, start_col, direction):
+        row_delta, col_delta = direction
+        for i, letter in enumerate(word):
+            row = start_row + i * row_delta
+            col = start_col + i * col_delta
+            if row < 0 or row >= self.grid_size or col < 0 or col >= self.grid_size:
+                return False
+        return True
+
+    def _place_word(self, word, start_row, start_col, direction):
+        row_delta, col_delta = direction
+        for i, letter in enumerate(word):
+            row = start_row + i * row_delta
+            col = start_col + i * col_delta
+            self.grid[row][col] = letter
+
+    def display_grid(self):
+        grid_str = "```\n"
+        for row in self.grid:
+            grid_str += " ".join(letter.upper() for letter in row) + "\n"
+        grid_str += "```"
+        return grid_str
+
+    def check_word(self, word):
+        word = word.lower()
+        if word in self.words and word not in self.found_words:
+            self.found_words.add(word)
+            return True
+        return False
+
+    def is_complete(self):
+        return len(self.found_words) == len(self.words)
+
+@bot.command(name='wordsearch')
+async def wordsearch(ctx):
+    try:
+        # Filter out recently used words
+        available_words = [w for w in wordsearch_words if w not in wordsearch_word_history]
+        if len(available_words) < 2:
+            available_words = wordsearch_words
+        selected_words = random.sample(available_words, 2)
+        wordsearch_word_history.extend(selected_words)
+        game = WordSearchGame(selected_words)
+        active_wordsearch_games[ctx.author.id] = game
+        await ctx.send(
+            f"🔍 **Word Search Game Started!**\n"
+            f"Find **2 words** (5 letters each) hidden in this grid.\n"
+            f"Words can be horizontal, vertical, diagonal, forwards, or backwards!\n"
+            f"Just type each word when you find it.\n\n"
+            f"{game.display_grid()}"
+        )
+        await logger.log_command_usage(ctx, "wordsearch", success=True, extra_info=f"Words: {', '.join(selected_words)}")
+    except Exception as e:
+        await logger.log_error(e, "Word Search Error")
+        await logger.log_command_usage(ctx, "wordsearch", success=False)
 
 # ─── Journal System ─────────────────────────────────────────────────
 

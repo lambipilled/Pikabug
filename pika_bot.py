@@ -1,7 +1,7 @@
 import discord
 import random
 import asyncio
-import json
+import json 
 import os
 import traceback
 import datetime
@@ -162,7 +162,7 @@ class DiscordLogger:
                 await self.log_channel.send(embed=embed)
             except Exception as e:
                 print(f"Failed to send log to Discord: {e}")
-        else:
+else:
             print("Log channel not available - printing to console:")
             print(f"Title: {embed.title}")
             for field in embed.fields:
@@ -381,15 +381,15 @@ common_prefixes: List[str] = [
 async def prefixgame(ctx):
     try:
         # Pick and announce a prefix
-        weights = [len(prefix_map[p]) for p in common_prefixes]
-        current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
+    weights = [len(prefix_map[p]) for p in common_prefixes]
+    current_prefix = random.choices(common_prefixes, weights=weights, k=1)[0]
         await ctx.send(f"🧠 New round! Submit the **longest** word starting with: `{current_prefix}`")
 
         # Collect submissions
         submissions: Dict[discord.Member, str] = {}
 
-        while True:
-            try:
+    while True:
+        try:
                 msg = await bot.wait_for("message", timeout=12.0, check=lambda m: 
                     m.channel == ctx.channel and
                     not m.author.bot and
@@ -403,10 +403,10 @@ async def prefixgame(ctx):
                 prev = submissions.get(msg.author)
                 if prev is None or len(word) > len(prev):
                     submissions[msg.author] = word
-            except asyncio.TimeoutError:
+        except asyncio.TimeoutError:
                 break
 
-        if not submissions:
+    if not submissions:
             await ctx.send("⏲ Time's up! No valid entries were submitted.")
             await logger.log_command_usage(
                 ctx,
@@ -414,25 +414,25 @@ async def prefixgame(ctx):
                 success=True,
                 extra_info="No submissions"
             )
-            return
+        return
 
         # Determine winner and award points
         winner, winning_word = max(submissions.items(), key=lambda kv: len(kv[1]))
-        guild_id = str(ctx.guild.id)
-        user_id = str(winner.id)
-        record = get_user_record(guild_id, user_id)
-        record["points"] += PREFIXGAME_POINTS
-        record["prefixgame_submissions"] += 1
+    guild_id = str(ctx.guild.id)
+    user_id = str(winner.id)
+    record = get_user_record(guild_id, user_id)
+    record["points"] += PREFIXGAME_POINTS
+    record["prefixgame_submissions"] += 1
         save_pikapoints(pika_data)
 
         # Send results
-        await ctx.send(
+    await ctx.send(
             f"🏆 **{winner.display_name}** wins with **{winning_word}** ({len(winning_word)} letters)!\n"
-            f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
-            f"• Total Points: **{record['points']}**\n"
-            f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
-        )
-        
+        f"You earned **{PREFIXGAME_POINTS}** PikaPoints!\n"
+        f"• Total Points: **{record['points']}**\n"
+        f"• Prefix-game entries: **{record['prefixgame_submissions']}**"
+    )
+
         await logger.log_command_usage(ctx, "prefixgame", success=True, extra_info=f"Winner: {winner.display_name}")
 
     except Exception as e:
@@ -556,12 +556,11 @@ async def reveal(ctx):
         await logger.log_error(e, "Reveal Command Error")
         await logger.log_command_usage(ctx, "reveal", success=False)
 
-# --- Word Search Game (4x4, 4-letter words) ---
+# --- Word Search Game (5x5, 5-letter words, hidden words not shown) ---
 
-# Update to use 4-letter words only
 def load_wordsearch_words():
     with open("common_words.txt") as f:
-        return [w.strip().lower() for w in f if len(w.strip()) == 4]
+        return [w.strip().lower() for w in f if len(w.strip()) == 5]
 wordsearch_words = load_wordsearch_words()
 
 import string
@@ -574,7 +573,7 @@ wordsearch_word_history = deque(maxlen=50)  # Track last 50 words used
 # Update the WordSearchGame class for 4x4 grid
 class WordSearchGame:
     def __init__(self, words):
-        self.grid_size = 4
+        self.grid_size = 5
         self.grid = [['' for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         self.words = [w.lower() for w in words]
         self.found_words = set()
@@ -639,23 +638,25 @@ class WordSearchGame:
 @bot.command(name='wordsearch')
 async def wordsearch(ctx):
     try:
-        # Filter out recently used words
         available_words = [w for w in wordsearch_words if w not in wordsearch_word_history]
         if len(available_words) < 2:
             available_words = wordsearch_words
-        selected_words = random.sample(available_words, 2)
+        # Ensure two unique words
+        while True:
+            selected_words = random.sample(available_words, 2)
+            if selected_words[0] != selected_words[1]:
+                break
         wordsearch_word_history.extend(selected_words)
         game = WordSearchGame(selected_words)
         active_wordsearch_games[ctx.author.id] = game
         await ctx.send(
             f"🔍 **Word Search Game Started!**\n"
-            f"Find **2 words** (4 letters each) hidden in this grid.\n"
+            f"Find **2 hidden 5-letter words** in this 5x5 grid.\n"
             f"Words can be horizontal, vertical, diagonal, forwards, or backwards!\n"
-            f"Just type each word when you find it, or type `!endwordsearch` to give up.\n\n"
-            f"Hidden words: `{', '.join(selected_words)}`\n"
+            f"Type each word when you find it, or type `!endwordsearch` to give up.\n\n"
             f"{game.display_grid()}"
         )
-        await logger.log_command_usage(ctx, "wordsearch", success=True, extra_info=f"Words: {', '.join(selected_words)}")
+        await logger.log_command_usage(ctx, "wordsearch", success=True)
     except Exception as e:
         await logger.log_error(e, "Word Search Error")
         await logger.log_command_usage(ctx, "wordsearch", success=False)
@@ -677,11 +678,10 @@ async def on_message(message):
         user_id = message.author.id
         if user_id in active_wordsearch_games:
             game = active_wordsearch_games[user_id]
-            # Allow multiple words in one message (split by space, comma, or newline)
             guesses = [w.strip().lower() for w in re.split(r'[\s,]+', message.content) if w.strip()]
             found_this_message = False
             for word_guess in guesses:
-                if len(word_guess) == 4 and word_guess.isalpha():
+                if len(word_guess) == 5 and word_guess.isalpha():
                     if game.check_word(word_guess):
                         await message.channel.send(f"✅ Correct! You found **{word_guess}**!")
                         found_this_message = True
@@ -814,11 +814,11 @@ async def prompt(ctx):
         choices = prompt_prompts.copy()
         if last_prompt_prompt in choices:
             choices.remove(last_prompt_prompt)
-        if not choices:
+    if not choices:
             choices = prompt_prompts.copy()
-        prompt = random.choice(choices)
+    prompt = random.choice(choices)
         last_prompt_prompt = prompt
-        await ctx.send(f"📝 **Journaling prompt:** {prompt}")
+    await ctx.send(f"📝 **Journaling prompt:** {prompt}")
         await logger.log_command_usage(ctx, "prompt", success=True, extra_info=f"Prompt: {prompt[:50]}...")
     except Exception as e:
         await logger.log_error(e, "Journal Command Error")
@@ -827,10 +827,10 @@ async def prompt(ctx):
 @bot.command(name='write')
 async def write(ctx, *, entry: str):
     try:
-        guild_id = str(ctx.guild.id)
-        user_id  = str(ctx.author.id)
+    guild_id = str(ctx.guild.id)
+    user_id  = str(ctx.author.id)
 
-        record = get_user_record(guild_id, user_id)
+    record = get_user_record(guild_id, user_id)
         record['points'] += PROMPT_POINTS
         if 'prompt_submissions' not in record:
             record['prompt_submissions'] = 0
@@ -922,11 +922,11 @@ async def venting(ctx, *, entry: str):
             record['vent_submissions'] = 0
         record['vent_submissions'] += 1
         save_pikapoints(pika_data)
-        await ctx.send(
+    await ctx.send(
             f"✅ Vent received! You earned **{VENT_POINTS}** PikaPoints.\n"
-            f"• **Total Points:** {record['points']}\n"
+        f"• **Total Points:** {record['points']}\n"
             f"• **Vent Submissions:** {record['vent_submissions']}"
-        )
+    )
         await logger.log_command_usage(ctx, "venting", success=True, extra_info=f"Entry length: {len(entry)} chars")
     except Exception as e:
         await logger.log_error(e, "Venting Command Error")
@@ -1023,12 +1023,12 @@ def create_support_command(command_name):
             if global_var_name not in globals():
                 globals()[global_var_name] = None
             available = responses[command_name]
-            for _ in range(5):
-                msg = random.choice(available)
+    for _ in range(5):
+        msg = random.choice(available)
                 if msg != globals()[global_var_name]:
-                    break
+            break
             globals()[global_var_name] = msg
-            await ctx.send(msg)
+    await ctx.send(msg)
             await logger.log_command_usage(ctx, command_name, success=True)
         except Exception as e:
             await logger.log_error(e, f"Support Command Error ({command_name})")
@@ -1064,7 +1064,7 @@ async def send_hot_take():
         if last_index in order:
             current_position = order.index(last_index)
             next_position = (current_position + 1) % len(order)
-        else:
+    else:
             next_position = 0
             
         hot_take_index = order[next_position]
@@ -1112,7 +1112,7 @@ async def points(ctx):
         if os.path.exists(PIKA_FILE):
             with open(PIKA_FILE, 'r') as f:
                 all_data = json.load(f)
-        else:
+    else:
             all_data = {}
 
         guild_id_str = str(ctx.guild.id)
@@ -1134,7 +1134,7 @@ async def points(ctx):
 @bot.command(name="pikahelp")
 async def pikahelp_command(ctx):
     try:
-        pikahelp_text = """
+    pikahelp_text = """
 🧠 **Pikabug Commands**:
 
 `!pikahelp` - Show list of Pikabug's commands.
@@ -1159,7 +1159,7 @@ async def pikahelp_command(ctx):
 `!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix. PikaPoints are rewarded for winners.
 `!wordsearch` - Start a 5x5 word search game. Find two 5-7 letter words hidden in the grid.
 """
-        await ctx.send(pikahelp_text)
+    await ctx.send(pikahelp_text)
         await logger.log_command_usage(ctx, "pikahelp", success=True)
         
     except Exception as e:

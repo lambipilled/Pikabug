@@ -178,6 +178,7 @@ PROMPT_POINTS = 15
 VENT_POINTS = 10
 PREFIXGAME_POINTS = 5
 UNSCRAMBLE_POINTS = 5
+WORKSHOP_POINTS = 20
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -197,16 +198,52 @@ def save_pikapoints(data: dict):
 
 pika_data = load_pikapoints()
 
+# Add at the top with other point values
+WORKSHOP_POINTS = 20
+WORKSHOP_CHANNEL_ID = 1392093043800412160
+
+# Update get_user_record to include 'workshop_submissions'
 def get_user_record(guild_id: str, user_id: str):
-    """Ensure a record exists and return it."""
     guild = pika_data.setdefault(guild_id, {})
     return guild.setdefault(user_id, {
         "points": 0,
         "prompt_submissions": 0,
         "vent_submissions": 0,
+        "workshop_submissions": 0,
         "prefixgame_submissions": 0,
         "unscramble_submissions": 0,
     })
+
+# Add event listener for awarding workshop points
+def is_workshop_channel(channel):
+    return channel.id == WORKSHOP_CHANNEL_ID
+
+@bot.event
+async def on_message(message):
+    # Award workshop points if in the correct channel and not a bot
+    if (
+        message.guild is not None and
+        is_workshop_channel(message.channel) and
+        not message.author.bot
+    ):
+        guild_id = str(message.guild.id)
+        user_id = str(message.author.id)
+        record = get_user_record(guild_id, user_id)
+        record['points'] += WORKSHOP_POINTS
+        record['workshop_submissions'] += 1
+        save_pikapoints(pika_data)
+        try:
+            await message.channel.send(
+                f"🎉 {message.author.mention}, you earned **{WORKSHOP_POINTS}** PikaPoints for participating in the weekly workshop!\n"
+                f"• **Total Points:** {record['points']}\n"
+                f"• **Workshop Submissions:** {record['workshop_submissions']}"
+            )
+            await logger.log_points_award(message.author.id, message.guild.id, WORKSHOP_POINTS, "workshop", record["points"])
+            await logger.log_command_usage(message, "workshop_auto_award", success=True, extra_info="Workshop message detected.")
+        except Exception as e:
+            await logger.log_error(e, "Workshop Points Award Error")
+    # Don't forget to process commands as usual
+    await bot.process_commands(message)
 
 # ─── AI Chat Command ─────────────────────────────────────────────────
 
@@ -513,7 +550,6 @@ async def venting(ctx, *, entry: str):
             f"• **Total Points:** {record['points']}\n"
             f"• **Vent Submissions:** {record['vent_submissions']}"
         )
-        await logger.log_points_award(ctx.author.id, ctx.guild.id, VENT_POINTS, "vent", record["points"])
         await logger.log_command_usage(ctx, "venting", success=True, extra_info=f"Entry length: {len(entry)} chars")
     except Exception as e:
         await logger.log_error(e, "Venting Command Error")

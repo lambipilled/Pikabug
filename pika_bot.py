@@ -165,7 +165,7 @@ class DiscordLogger:
                 await self.log_channel.send(embed=embed)
             except Exception as e:
                 print(f"Failed to send log to Discord: {e}")
-else:
+        else:
             print("Log channel not available - printing to console:")
             print(f"Title: {embed.title}")
             for field in embed.fields:

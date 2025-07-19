@@ -246,6 +246,7 @@ PREFIXGAME_POINTS = 5
 UNSCRAMBLE_POINTS = 5
 WORKSHOP_POINTS = 20
 WORDSEARCH_POINTS = 5
+RHYME_POINTS = 5
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -801,11 +802,38 @@ async def on_message(message):
                             await message.channel.send(f"❌ **{word_guess}** is not one of the hidden words!")
             
             return  # Don't process commands since this was a game guess
+    
+    # --- Workshop points logic ---
+    valid_days = {"monday", "tuesday", "thursday", "friday"}
+    if (
+        message.guild is not None and
+        is_workshop_channel(message.channel) and
+        not message.author.bot
+    ):
+        content_lower = message.content.lower()
+        if any(day in content_lower for day in valid_days):
+            guild_id = str(message.guild.id)
+            user_id_str = str(message.author.id)
+            record = get_user_record(guild_id, user_id_str)
+            record['points'] += WORKSHOP_POINTS
+            if 'workshop_submissions' not in record:
+                record['workshop_submissions'] = 0
+            record['workshop_submissions'] += 1
+            save_pikapoints(pika_data)
+            try:
+                await message.channel.send(
+                    f"🎉 {message.author.mention}, you earned **{WORKSHOP_POINTS}** PikaPoints for participating in the weekly workshop!\n"
+                    f"• **Total Points:** {record['points']}\n"
+                    f"• **Workshop Submissions:** {record['workshop_submissions']}"
+                )
+                await logger.log_command_usage(message, "workshop_auto_award", success=True, extra_info="Workshop message detected.")
+            except Exception as e:
+                await logger.log_error(e, "Workshop Points Award Error")
+    
+    # Process commands as usual
+    await bot.process_commands(message)
 
 # ─── Rhyming Word Game ─────────────────────────────────────────────────
-
-# Add this to your PikaPoints reward values section at the top
-RHYME_POINTS = 5
 
 # Store active rhyme games (one per channel)
 active_rhyme_games = {}
@@ -993,36 +1021,6 @@ async def rhyme(ctx):
         await logger.log_error(e, "Rhyme Game Error")
         await logger.log_command_usage(ctx, "rhyme", success=False)
         await ctx.send("❌ An error occurred in the rhyme game. Please try again.")
-    
-    # --- Workshop points logic ---
-    valid_days = {"monday", "tuesday", "thursday", "friday"}
-    if (
-        message.guild is not None and
-        is_workshop_channel(message.channel) and
-        not message.author.bot
-    ):
-        content_lower = message.content.lower()
-        if any(day in content_lower for day in valid_days):
-            guild_id = str(message.guild.id)
-            user_id_str = str(message.author.id)
-            record = get_user_record(guild_id, user_id_str)
-            record['points'] += WORKSHOP_POINTS
-            if 'workshop_submissions' not in record:
-                record['workshop_submissions'] = 0
-            record['workshop_submissions'] += 1
-            save_pikapoints(pika_data)
-            try:
-                await message.channel.send(
-                    f"🎉 {message.author.mention}, you earned **{WORKSHOP_POINTS}** PikaPoints for participating in the weekly workshop!\n"
-                    f"• **Total Points:** {record['points']}\n"
-                    f"• **Workshop Submissions:** {record['workshop_submissions']}"
-                )
-                await logger.log_command_usage(message, "workshop_auto_award", success=True, extra_info="Workshop message detected.")
-            except Exception as e:
-                await logger.log_error(e, "Workshop Points Award Error")
-    
-    # Process commands as usual
-    await bot.process_commands(message)
 
 # ─── Journal System ─────────────────────────────────────────────────
 
@@ -1397,6 +1395,186 @@ async def points(ctx):
         await logger.log_error(e, "Points Command Error")
         await logger.log_command_usage(ctx, "points", success=False)
 
+# ─── Admin Commands ─────────────────────────────────────────────────
+
+@bot.command(name='grantpoints')
+async def grantpoints(ctx, user: discord.Member, points: int):
+    """Grant PikaPoints to a user (Admin only)"""
+    try:
+        # Check if user has administrator permissions
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send("❌ You need administrator permissions to use this command.")
+            await logger.log_command_usage(ctx, "grantpoints", success=False, extra_info="Insufficient permissions")
+            return
+        
+        # Validate points amount
+        if points <= 0:
+            await ctx.send("❌ Points amount must be greater than 0.")
+            await logger.log_command_usage(ctx, "grantpoints", success=False, extra_info="Invalid points amount")
+            return
+        
+        if points > 1000:
+            await ctx.send("❌ Cannot grant more than 1000 points at once.")
+            await logger.log_command_usage(ctx, "grantpoints", success=False, extra_info="Points amount too high")
+            return
+        
+        # Get user record and update points
+        guild_id = str(ctx.guild.id)
+        user_id = str(user.id)
+        record = get_user_record(guild_id, user_id)
+        
+        # Store original points for logging
+        original_points = record["points"]
+        
+        # Add points
+        record["points"] += points
+        
+        # Ensure admin_granted field exists
+        if "admin_granted" not in record:
+            record["admin_granted"] = 0
+        record["admin_granted"] += points
+        
+        # Save to disk
+        save_pikapoints(pika_data)
+        
+        # Send confirmation message
+        await ctx.send(
+            f"✅ **{ctx.author.display_name}** granted **{points}** PikaPoints to **{user.display_name}**!\n"
+            f"• **{user.display_name}'s Total Points:** {record['points']}\n"
+            f"• **Points Granted by Admins:** {record['admin_granted']}"
+        )
+        
+        # Log the admin action
+        await logger.log_points_award(user.id, guild_id, points, f"admin_granted_by_{ctx.author.id}", record["points"])
+        await logger.log_command_usage(ctx, "grantpoints", success=True, 
+                                     extra_info=f"Granted {points} points to {user.display_name} ({user.id})")
+        
+    except Exception as e:
+        await logger.log_error(e, "Grant Points Command Error")
+        await logger.log_command_usage(ctx, "grantpoints", success=False)
+        await ctx.send("❌ An error occurred while granting points. Please try again.")
+
+@bot.command(name='removepoints')
+async def removepoints(ctx, user: discord.Member, points: int):
+    """Remove PikaPoints from a user (Admin only)"""
+    try:
+        # Check if user has administrator permissions
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send("❌ You need administrator permissions to use this command.")
+            await logger.log_command_usage(ctx, "removepoints", success=False, extra_info="Insufficient permissions")
+            return
+        
+        # Validate points amount
+        if points <= 0:
+            await ctx.send("❌ Points amount must be greater than 0.")
+            await logger.log_command_usage(ctx, "removepoints", success=False, extra_info="Invalid points amount")
+            return
+        
+        if points > 1000:
+            await ctx.send("❌ Cannot remove more than 1000 points at once.")
+            await logger.log_command_usage(ctx, "removepoints", success=False, extra_info="Points amount too high")
+            return
+        
+        # Get user record and update points
+        guild_id = str(ctx.guild.id)
+        user_id = str(user.id)
+        record = get_user_record(guild_id, user_id)
+        
+        # Store original points for logging
+        original_points = record["points"]
+        
+        # Check if user has enough points
+        if record["points"] < points:
+            await ctx.send(f"❌ **{user.display_name}** only has **{record['points']}** points. Cannot remove **{points}** points.")
+            await logger.log_command_usage(ctx, "removepoints", success=False, extra_info="Insufficient user points")
+            return
+        
+        # Remove points
+        record["points"] -= points
+        
+        # Ensure admin_removed field exists
+        if "admin_removed" not in record:
+            record["admin_removed"] = 0
+        record["admin_removed"] += points
+        
+        # Save to disk
+        save_pikapoints(pika_data)
+        
+        # Send confirmation message
+        await ctx.send(
+            f"✅ **{ctx.author.display_name}** removed **{points}** PikaPoints from **{user.display_name}**!\n"
+            f"• **{user.display_name}'s Total Points:** {record['points']}\n"
+            f"• **Points Removed by Admins:** {record['admin_removed']}"
+        )
+        
+        # Log the admin action
+        await logger.log_points_award(user.id, guild_id, -points, f"admin_removed_by_{ctx.author.id}", record["points"])
+        await logger.log_command_usage(ctx, "removepoints", success=True, 
+                                     extra_info=f"Removed {points} points from {user.display_name} ({user.id})")
+        
+    except Exception as e:
+        await logger.log_error(e, "Remove Points Command Error")
+        await logger.log_command_usage(ctx, "removepoints", success=False)
+        await ctx.send("❌ An error occurred while removing points. Please try again.")
+
+@bot.command(name='setpoints')
+async def setpoints(ctx, user: discord.Member, points: int):
+    """Set a user's PikaPoints to a specific amount (Admin only)"""
+    try:
+        # Check if user has administrator permissions
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send("❌ You need administrator permissions to use this command.")
+            await logger.log_command_usage(ctx, "setpoints", success=False, extra_info="Insufficient permissions")
+            return
+        
+        # Validate points amount
+        if points < 0:
+            await ctx.send("❌ Points amount cannot be negative.")
+            await logger.log_command_usage(ctx, "setpoints", success=False, extra_info="Invalid points amount")
+            return
+        
+        if points > 10000:
+            await ctx.send("❌ Cannot set points higher than 10,000.")
+            await logger.log_command_usage(ctx, "setpoints", success=False, extra_info="Points amount too high")
+            return
+        
+        # Get user record and update points
+        guild_id = str(ctx.guild.id)
+        user_id = str(user.id)
+        record = get_user_record(guild_id, user_id)
+        
+        # Store original points for logging
+        original_points = record["points"]
+        
+        # Set points
+        record["points"] = points
+        
+        # Ensure admin_set field exists
+        if "admin_set" not in record:
+            record["admin_set"] = 0
+        record["admin_set"] += 1
+        
+        # Save to disk
+        save_pikapoints(pika_data)
+        
+        # Send confirmation message
+        await ctx.send(
+            f"✅ **{ctx.author.display_name}** set **{user.display_name}'s** PikaPoints to **{points}**!\n"
+            f"• **Previous Points:** {original_points}\n"
+            f"• **New Points:** {record['points']}\n"
+            f"• **Times Set by Admins:** {record['admin_set']}"
+        )
+        
+        # Log the admin action
+        await logger.log_points_award(user.id, guild_id, points - original_points, f"admin_set_by_{ctx.author.id}", record["points"])
+        await logger.log_command_usage(ctx, "setpoints", success=True, 
+                                     extra_info=f"Set {user.display_name}'s points from {original_points} to {points}")
+        
+    except Exception as e:
+        await logger.log_error(e, "Set Points Command Error")
+        await logger.log_command_usage(ctx, "setpoints", success=False)
+        await ctx.send("❌ An error occurred while setting points. Please try again.")
+
 # ─── Help Command ─────────────────────────────────────────────────
 
 @bot.command(name="pikahelp")
@@ -1423,8 +1601,13 @@ async def pikahelp_command(ctx):
 `!hint` — Get a hint for the current unscramble game; there are two hint options.
 `!reveal` — Reveal the current word and end the round of the unscramble game.
 `!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix. PikaPoints are rewarded for winners.
-`!wordsearch` - Start a 5x5 word search game. Find two 5-7 letter words hidden in the grid.
-`!rhyme` - Start the rhyming words game. PikaPoints are rewarded for winners.
+`!wordsearch` - Start an 8x8 word search game. Find three hidden words (4, 5, and 6 letters) in the grid.
+`!rhyme` - Start the rhyming words game. Find words that rhyme with the given word in 12 seconds. PikaPoints are rewarded for the player with the most rhyming words.
+
+👑 **Admin Commands** (Administrator permissions required):
+`!grantpoints @user [amount]` - Grant PikaPoints to a user (max 1000 at once).
+`!removepoints @user [amount]` - Remove PikaPoints from a user (max 1000 at once).
+`!setpoints @user [amount]` - Set a user's PikaPoints to a specific amount (max 10,000).
 """
         await ctx.send(pikahelp_text)
         await logger.log_command_usage(ctx, "pikahelp", success=True)

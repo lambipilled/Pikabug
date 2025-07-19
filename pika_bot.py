@@ -563,22 +563,23 @@ async def reveal(ctx):
 def load_wordsearch_words():
     with open("common_words.txt") as f:
         words = [w.strip().lower() for w in f if w.strip()]
-        # Separate 4-letter and 5-letter words
+        # Separate 4-letter, 5-letter, and 6-letter words
         four_letter_words = [w for w in words if len(w) == 4]
         five_letter_words = [w for w in words if len(w) == 5]
-        return four_letter_words, five_letter_words
+        six_letter_words = [w for w in words if len(w) == 6]
+        return four_letter_words, five_letter_words, six_letter_words
 
-four_letter_words, five_letter_words = load_wordsearch_words()
+four_letter_words, five_letter_words, six_letter_words = load_wordsearch_words()
 
 # Track active word search games per user
 active_wordsearch_games = {}
 wordsearch_word_history = deque(maxlen=50)  # Track last 50 words used
 
 class WordSearchGame:
-    def __init__(self, four_letter_word, five_letter_word):
-        self.grid_size = 5
+    def __init__(self, four_letter_word, five_letter_word, six_letter_word):
+        self.grid_size = 8
         self.grid = [['' for _ in range(self.grid_size)] for _ in range(self.grid_size)]
-        self.words = [four_letter_word.lower(), five_letter_word.lower()]
+        self.words = [four_letter_word.lower(), five_letter_word.lower(), six_letter_word.lower()]
         self.found_words = set()
         self.word_positions = {}  # Track where each word is placed
         self.used_positions = set()  # Track all used positions to prevent overlap
@@ -632,7 +633,7 @@ class WordSearchGame:
                     if placed:
                         break
             
-            # If still not placed, force place it (this shouldn't happen with 4-5 letter words in 5x5 grid)
+            # If still not placed, force place it (this shouldn't happen with 4-6 letter words in 8x8 grid)
             if not placed:
                 print(f"Warning: Could not place word '{word}' in grid")
     
@@ -691,32 +692,39 @@ async def wordsearch(ctx):
         # Filter for available words
         available_four_letter = [w for w in four_letter_words if w not in wordsearch_word_history]
         available_five_letter = [w for w in five_letter_words if w not in wordsearch_word_history]
+        available_six_letter = [w for w in six_letter_words if w not in wordsearch_word_history]
         
         # If we don't have enough words, use all available
         if len(available_four_letter) < 1:
             available_four_letter = four_letter_words
         if len(available_five_letter) < 1:
             available_five_letter = five_letter_words
+        if len(available_six_letter) < 1:
+            available_six_letter = six_letter_words
         
-        # Select one 4-letter word and one 5-letter word
+        # Select one 4-letter word, one 5-letter word, and one 6-letter word
         selected_four_letter = random.choice(available_four_letter)
         selected_five_letter = random.choice(available_five_letter)
+        selected_six_letter = random.choice(available_six_letter)
         
-        wordsearch_word_history.extend([selected_four_letter, selected_five_letter])
+        wordsearch_word_history.extend([selected_four_letter, selected_five_letter, selected_six_letter])
         
         # Create game
-        game = WordSearchGame(selected_four_letter, selected_five_letter)
+        game = WordSearchGame(selected_four_letter, selected_five_letter, selected_six_letter)
         active_wordsearch_games[ctx.author.id] = game
         
         await ctx.send(
             f"🔍 **Word Search Game Started!**\n"
-            f"Find **1 four-letter word** and **1 five-letter word** in this 5x5 grid.\n"
+            f"Find **3 hidden words** in this 8x8 grid:\n"
+            f"• One 4-letter word\n"
+            f"• One 5-letter word\n"
+            f"• One 6-letter word\n"
             f"Words can be horizontal, vertical, diagonal, forwards, or backwards!\n"
             f"Type each word when you find it, or type `!endwordsearch` to give up.\n\n"
             f"{game.display_grid()}"
         )
         
-        await logger.log_command_usage(ctx, "wordsearch", success=True, extra_info=f"Words: {selected_four_letter}, {selected_five_letter}")
+        await logger.log_command_usage(ctx, "wordsearch", success=True, extra_info=f"Words: {selected_four_letter}, {selected_five_letter}, {selected_six_letter}")
     except Exception as e:
         await logger.log_error(e, "Word Search Error")
         await logger.log_command_usage(ctx, "wordsearch", success=False)
@@ -750,8 +758,8 @@ async def on_message(message):
             guesses = [w.strip().lower() for w in re.split(r'[\s,]+', message.content) if w.strip()]
             
             for word_guess in guesses:
-                # Check if it's a 4 or 5-letter word
-                if (len(word_guess) == 4 or len(word_guess) == 5) and word_guess.isalpha():
+                # Check if it's a 4, 5, or 6-letter word
+                if (len(word_guess) == 4 or len(word_guess) == 5 or len(word_guess) == 6) and word_guess.isalpha():
                     if game.check_word(word_guess):
                         await message.channel.send(f"✅ Correct! You found **{word_guess}**!")
                         

@@ -576,6 +576,7 @@ class WordSearchGame:
         self.grid = [['' for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         self.words = [w.lower() for w in words]
         self.found_words = set()
+        self.word_positions = {}  # Track where each word is placed
         self._create_grid()
     
     def _create_grid(self):
@@ -601,7 +602,8 @@ class WordSearchGame:
             placed = False
             attempts = 0
             
-            while not placed and attempts < 200:  # Increased attempts
+            # Try random placement first
+            while not placed and attempts < 100:
                 attempts += 1
                 direction = random.choice(directions)
                 start_row = random.randint(0, self.grid_size - 1)
@@ -611,19 +613,23 @@ class WordSearchGame:
                     self._place_word(word, start_row, start_col, direction)
                     placed = True
             
+            # If random placement failed, try systematic placement
             if not placed:
-                # Force place the word if random placement failed
-                for d in directions:
-                    for r in range(self.grid_size):
-                        for c in range(self.grid_size):
-                            if self._can_place_word(word, r, c, d):
-                                self._place_word(word, r, c, d)
+                for direction in directions:
+                    for start_row in range(self.grid_size):
+                        for start_col in range(self.grid_size):
+                            if self._can_place_word(word, start_row, start_col, direction):
+                                self._place_word(word, start_row, start_col, direction)
                                 placed = True
                                 break
                         if placed:
                             break
                     if placed:
                         break
+            
+            # If still not placed, force place it (this shouldn't happen with 5-letter words in 5x5 grid)
+            if not placed:
+                print(f"Warning: Could not place word '{word}' in grid")
     
     def _can_place_word(self, word, start_row, start_col, direction):
         row_delta, col_delta = direction
@@ -636,10 +642,13 @@ class WordSearchGame:
     
     def _place_word(self, word, start_row, start_col, direction):
         row_delta, col_delta = direction
+        positions = []
         for i, letter in enumerate(word):
             row = start_row + i * row_delta
             col = start_col + i * col_delta
             self.grid[row][col] = letter
+            positions.append((row, col))
+        self.word_positions[word] = positions
     
     def display_grid(self):
         grid_str = "```\n"

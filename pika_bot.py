@@ -295,14 +295,18 @@ async def chat(ctx, *, prompt):
         if user_key not in conversation_history:
             conversation_history[user_key] = deque(maxlen=CONVERSATION_LIMIT)
 
-        # Build messages for OpenAI
-        messages = [
-            {"role": "system", "content": """You are Pikabug, a blunt and humorously edgy Discord companion.
+        # Build messages for OpenAI in proper order
+        messages = []
+        
+        # 1. ALWAYS start with system prompt (personality) - this must be first
+        messages.append({
+            "role": "system", 
+            "content": """You are Pikabug, a blunt and humorously edgy Discord companion.
 
-Your personality traits:
+CRITICAL PERSONALITY TRAITS (ALWAYS FOLLOW THESE):
 - Always use edgy, unpredictable humor in general discussion
 - Always use empathetic, patient language when providing emotional support
-- Supply knowledgable wisdom when providing emotional support
+- Supply knowledgeable wisdom when providing emotional support
 - Never use outdated slang and don't try to be "hip"
 - Keep responses edgy and funny in general discussion
 - Keep responses meaningful, helpful, and emotionally intelligent in emotional discussion
@@ -315,18 +319,19 @@ Your personality traits:
 - Be on the side of the user and don't play devil's advocate
 - Don't be overly excited or enthusiastic in general discussion
 
-Communication style:
+COMMUNICATION STYLE (ALWAYS FOLLOW THESE):
 - Don't use lengthy responses for general discussion or chat
 - Provide human-like, meaningful, lengthy responses for mental health discussion or chat
 - Use uplifting, encouraging but calm language when a user seems upset
 
-Remember: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members."""}
-        ]
+REMEMBER: You're a trusted edgy, humorous friend who tells it like it is, but genuinely cares about the community members. NEVER ignore these personality instructions."""
+        })
         
-        # Add conversation history
-        messages.extend(list(conversation_history[user_key]))
+        # 2. Add conversation history (if any exists)
+        if conversation_history[user_key]:
+            messages.extend(list(conversation_history[user_key]))
         
-        # Add current message
+        # 3. Add current user message
         messages.append({"role": "user", "content": prompt})
 
         # Make OpenAI API call
@@ -1035,30 +1040,6 @@ async def venting(ctx, *, entry: str):
 # ─── Support Bot Commands ─────────────────────────────────────────────────
 
 responses = {
-    "lonely": [
-        "I'm sorry you're feeling lonely. Know that you're not alone — I'm here for you 💕, and so are the residents! You should try and reach out to them!",
-        "Never forget that loneliness doesn't mean you're unlovable. You are deeply worthy of connection.",
-        "I'm so sorry things feel heavy right now. Loneliness can ache in indescribeable ways. Try journaling or taking a short walk; sometimes being with yourself and appreciating your own company can be healing.",
-        "Even on quiet days, your presence still matters. You are a part of this community, and we care about you. Shoot a resident a message!",
-        "It makes sense to feel lonely after everything you've been through. It's okay. Want to vent?",
-        "You matter to people; your presence has immense value. Say hi to someone in the lounge! 💕",
-        "I see you, even if others don't right now. Your feelings are valid. Talk about some positive things that've happened recently to distract yourself.",
-        "Let's do some grounding. List three things you can see, hear, and feel right now. Stay present, and remember you won't always feel this way.",
-        "You deserve way more connection than you've been given, and it is totally human to feel lonely. To feel is to be alive, even if it might hurt. I see you and hear you.",
-        "Sometimes loneliness must persist because the world is preparing us for the right kind of presence. Be patient and try to find some enjoyment in your own company!",
-    ],
-    "dysmorphia": [
-        "Your body does not need to be fixed. It deserves respect as it is. There is someone out there who dreams of your body. You are your own kind of perfect.",
-        "You are not a reflection in the mirror — you are your laughter, your kindness, your presence.",
-        "Your worth is not defined by your appearance. You are so much more than what you see.",
-        "Do not let society's standards dictate how you feel about yourself. You are beautiful just as you are.",
-        "Remember, your body is a vessel for your spirit. It carries you through life, and that is what truly matters.",
-        "Your scars tell a story of survival and strength. They are part of who you are.",
-        "It's okay to have days when you don't feel good about yourself, just remember to be gentle with yourself.",
-        "The voice in your head with negative opinions about your body isn't your true thoughts, they're just loud and trained to try and taunt you. Don't let them.",
-        "You probably have had way more admirers than you think. What you're used to seeing in the mirror every day could be a breathtakingly beautiful view to someone else.",
-        "Your body is someone's dream. It is unique, and it is yours. Embrace it.",
-    ],  
     "comfort": [
         "It's okay to feel overwhelmed. Take a deep breath and know that you are not alone. Try reaching out to a resident, we all care about you.",
         "You are loved, even when it feels like the world is against you. Have you tried venting anonymously to Serenity?",
@@ -1244,8 +1225,6 @@ async def pikahelp_command(ctx):
 `!vent` - Vent, rant, and complain to Pikabug. This command gets Pika's attention first. Doing so gets you PikaPoints!
 `!venting` - Submit your vent to Pikabug for PikaPoints.
 `!points` - View how many PikaPoints you get from activity submissions.
-`!lonely` — Get a comforting message for loneliness.  
-`!dysmorphia` — Get a supportive message for body image issues.  
 `!comfort` — Get a general comfort and support message.
 `!suicidal` — Get compassionate support for suicidal thoughts.  
 `!anxious` — Get calming and supportive messages for anxiety.  

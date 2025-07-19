@@ -807,7 +807,7 @@ async def on_message(message):
 # Add this to your PikaPoints reward values section at the top
 RHYME_POINTS = 5
 
-# Store active rhyme games
+# Store active rhyme games (one per channel)
 active_rhyme_games = {}
 
 def get_rhyming_words(target_word, word_list):
@@ -843,9 +843,9 @@ def get_rhyming_words(target_word, word_list):
 @bot.command(name="rhyme")
 async def rhyme(ctx):
     try:
-        # Check if user already has an active game
-        if ctx.author.id in active_rhyme_games:
-            await ctx.send("❌ You already have an active rhyme game! Wait for it to finish.")
+        # Check if there's already an active game in this channel
+        if ctx.channel.id in active_rhyme_games:
+            await ctx.send("❌ There's already an active rhyme game in this channel! Wait for it to finish.")
             return
         
         # Load words from common_words.txt
@@ -875,15 +875,17 @@ async def rhyme(ctx):
             "valid_rhymes": valid_rhymes,
             "submissions": {},  # {user: set of words}
             "channel_id": ctx.channel.id,
-            "guild_id": ctx.guild.id
+            "guild_id": ctx.guild.id,
+            "start_time": asyncio.get_event_loop().time()
         }
-        active_rhyme_games[ctx.author.id] = game_state
+        active_rhyme_games[ctx.channel.id] = game_state
         
         await ctx.send(
             f"🎵 **Rhyming Game Started!**\n"
             f"Find words that rhyme with: **{target_word.upper()}**\n"
             f"You have 12 seconds to submit as many rhyming words as possible!\n"
-            f"Just type the words (no commands needed)."
+            f"Just type the words (no commands needed).\n"
+            f"Anyone can participate!"
         )
         
         # Start collecting submissions
@@ -932,7 +934,7 @@ async def rhyme(ctx):
                 break
         
         # Game ended - process results
-        del active_rhyme_games[ctx.author.id]
+        del active_rhyme_games[ctx.channel.id]
         
         if not game_state["submissions"]:
             await ctx.send(f"⏲ Time's up! No rhyming words were found for **{target_word}**")
@@ -986,8 +988,8 @@ async def rhyme(ctx):
         
     except Exception as e:
         # Clean up on error
-        if ctx.author.id in active_rhyme_games:
-            del active_rhyme_games[ctx.author.id]
+        if ctx.channel.id in active_rhyme_games:
+            del active_rhyme_games[ctx.channel.id]
         await logger.log_error(e, "Rhyme Game Error")
         await logger.log_command_usage(ctx, "rhyme", success=False)
         await ctx.send("❌ An error occurred in the rhyme game. Please try again.")
@@ -1422,6 +1424,7 @@ async def pikahelp_command(ctx):
 `!reveal` — Reveal the current word and end the round of the unscramble game.
 `!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix. PikaPoints are rewarded for winners.
 `!wordsearch` - Start a 5x5 word search game. Find two 5-7 letter words hidden in the grid.
+`!rhyme` - Start the rhyming words game. PikaPoints are rewarded for winners.
 """
         await ctx.send(pikahelp_text)
         await logger.log_command_usage(ctx, "pikahelp", success=True)

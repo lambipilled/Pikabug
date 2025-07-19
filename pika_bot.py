@@ -801,6 +801,196 @@ async def on_message(message):
                             await message.channel.send(f"❌ **{word_guess}** is not one of the hidden words!")
             
             return  # Don't process commands since this was a game guess
+
+# ─── Rhyming Word Game ─────────────────────────────────────────────────
+
+# Add this to your PikaPoints reward values section at the top
+RHYME_POINTS = 5
+
+# Store active rhyme games
+active_rhyme_games = {}
+
+def get_rhyming_words(target_word, word_list):
+    """Get words that rhyme with the target word"""
+    rhyming_words = set()
+    target_word = target_word.lower()
+    
+    # Enhanced rhyming logic - check last 2-3 letters
+    if len(target_word) >= 3:
+        # Get endings to check
+        endings_to_check = []
+        
+        # For 3+ letter words, check last 3 letters
+        if len(target_word) >= 3:
+            endings_to_check.append(target_word[-3:])
+        
+        # Always check last 2 letters
+        endings_to_check.append(target_word[-2:])
+        
+        for word in word_list:
+            word_lower = word.lower()
+            if word_lower != target_word:
+                # Check if words rhyme based on endings
+                for ending in endings_to_check:
+                    if word_lower.endswith(ending):
+                        # Additional check: make sure it's not just the same word with a prefix
+                        if len(word_lower) >= 3:  # Minimum word length for rhyming
+                            rhyming_words.add(word_lower)
+                            break
+    
+    return rhyming_words
+
+@bot.command(name="rhyme")
+async def rhyme(ctx):
+    try:
+        # Check if user already has an active game
+        if ctx.author.id in active_rhyme_games:
+            await ctx.send("❌ You already have an active rhyme game! Wait for it to finish.")
+            return
+        
+        # Load words from common_words.txt
+        with open("common_words.txt") as f:
+            common_words_list = [word.strip().lower() for word in f if 4 <= len(word.strip()) <= 6]
+        
+        # Select a random word that has at least some rhymes
+        max_attempts = 50
+        target_word = None
+        valid_rhymes = set()
+        
+        for _ in range(max_attempts):
+            candidate = random.choice(common_words_list)
+            candidate_rhymes = get_rhyming_words(candidate, valid_words)
+            if len(candidate_rhymes) >= 3:  # Ensure there are at least 3 possible rhymes
+                target_word = candidate
+                valid_rhymes = candidate_rhymes
+                break
+        
+        if not target_word:
+            await ctx.send("❌ Couldn't find a suitable word for the rhyme game. Please try again.")
+            return
+        
+        # Store game state
+        game_state = {
+            "target_word": target_word,
+            "valid_rhymes": valid_rhymes,
+            "submissions": {},  # {user: set of words}
+            "channel_id": ctx.channel.id,
+            "guild_id": ctx.guild.id
+        }
+        active_rhyme_games[ctx.author.id] = game_state
+        
+        await ctx.send(
+            f"🎵 **Rhyming Game Started!**\n"
+            f"Find words that rhyme with: **{target_word.upper()}**\n"
+            f"You have 12 seconds to submit as many rhyming words as possible!\n"
+            f"Just type the words (no commands needed)."
+        )
+        
+        # Start collecting submissions
+        end_time = asyncio.get_event_loop().time() + 12.0
+        
+        while asyncio.get_event_loop().time() < end_time:
+            try:
+                remaining_time = end_time - asyncio.get_event_loop().time()
+                if remaining_time <= 0:
+                    break
+                    
+                msg = await bot.wait_for(
+                    "message",
+                    timeout=remaining_time,
+                    check=lambda m: (
+                        m.channel.id == ctx.channel.id and
+                        not m.author.bot and
+                        not m.content.startswith('!')
+                    )
+                )
+                
+                user = msg.author
+                word_guess = msg.content.strip().lower()
+                
+                # Skip if not a single word
+                if ' ' in word_guess:
+                    continue
+                
+                # Initialize user's submission set if needed
+                if user not in game_state["submissions"]:
+                    game_state["submissions"][user] = set()
+                
+                # Check if word is valid and rhymes
+                if word_guess in valid_rhymes:
+                    if word_guess not in game_state["submissions"][user]:
+                        game_state["submissions"][user].add(word_guess)
+                        await ctx.send(f"✅ {user.mention} found: **{word_guess}**")
+                    else:
+                        await ctx.send(f"❌ {user.mention} already submitted **{word_guess}**")
+                elif word_guess in valid_words:
+                    await ctx.send(f"❌ {user.mention} **{word_guess}** doesn't rhyme with **{target_word}**")
+                elif len(word_guess) >= 2 and word_guess.isalpha():
+                    await ctx.send(f"❌ {user.mention} **{word_guess}** isn't a valid word")
+                    
+            except asyncio.TimeoutError:
+                break
+        
+        # Game ended - process results
+        del active_rhyme_games[ctx.author.id]
+        
+        if not game_state["submissions"]:
+            await ctx.send(f"⏲ Time's up! No rhyming words were found for **{target_word}**")
+            # Show some examples
+            example_rhymes = list(valid_rhymes)[:5]
+            if example_rhymes:
+                await ctx.send(f"Some words that rhyme with **{target_word}**: {', '.join(example_rhymes)}")
+            await logger.log_command_usage(ctx, "rhyme", success=True, extra_info="No submissions")
+            return
+        
+        # Find winner (most rhyming words)
+        winner = max(game_state["submissions"].items(), key=lambda x: len(x[1]))
+        winner_user, winner_words = winner
+        
+        # Award points to the winner
+        guild_id = str(ctx.guild.id)
+        user_id = str(winner_user.id)
+        record = get_user_record(guild_id, user_id)
+        record["points"] += RHYME_POINTS
+        
+        # Ensure rhyme_submissions field exists
+        if "rhyme_submissions" not in record:
+            record["rhyme_submissions"] = 0
+        record["rhyme_submissions"] += 1
+        
+        save_pikapoints(pika_data)
+        
+        # Send results
+        result_msg = f"🎵 **Rhyming Game Complete!**\n"
+        result_msg += f"The word was: **{target_word}**\n\n"
+        
+        # Show all participants and their words
+        for user, words in sorted(game_state["submissions"].items(), key=lambda x: len(x[1]), reverse=True):
+            if user == winner_user:
+                result_msg += f"🏆 **{user.display_name}**: {len(words)} words - {', '.join(sorted(words))}\n"
+            else:
+                result_msg += f"• **{user.display_name}**: {len(words)} words - {', '.join(sorted(words))}\n"
+        
+        result_msg += f"\n**{winner_user.display_name}** earned **{RHYME_POINTS}** PikaPoints!\n"
+        result_msg += f"• **Total Points:** {record['points']}\n"
+        result_msg += f"• **Rhyme Games Won:** {record['rhyme_submissions']}"
+        
+        await ctx.send(result_msg)
+        
+        # Log the game result
+        await logger.log_game_result("Rhyme Game", winner_user.id, guild_id, 
+                                   f"Target: {target_word}, Words found: {len(winner_words)}")
+        await logger.log_points_award(winner_user.id, guild_id, RHYME_POINTS, "rhyme", record["points"])
+        await logger.log_command_usage(ctx, "rhyme", success=True, 
+                                     extra_info=f"Winner: {winner_user.display_name}, Words: {len(winner_words)}")
+        
+    except Exception as e:
+        # Clean up on error
+        if ctx.author.id in active_rhyme_games:
+            del active_rhyme_games[ctx.author.id]
+        await logger.log_error(e, "Rhyme Game Error")
+        await logger.log_command_usage(ctx, "rhyme", success=False)
+        await ctx.send("❌ An error occurred in the rhyme game. Please try again.")
     
     # --- Workshop points logic ---
     valid_days = {"monday", "tuesday", "thursday", "friday"}

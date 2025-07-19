@@ -1221,7 +1221,7 @@ async def pikahelp_command(ctx):
         await logger.log_command_usage(ctx, "pikahelp", success=True)
         
     except Exception as e:
-        await logger.log_error(e, "Help Command Error")
+        await logger.log_error(se, "Help Command Error")
         await logger.log_command_usage(ctx, "pikahelp", success=False)
 
 # ─── Bot Startup ─────────────────────────────────────────────────

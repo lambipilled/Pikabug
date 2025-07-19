@@ -911,13 +911,13 @@ async def rhyme(ctx):
         await ctx.send(
             f"🎵 **Rhyming Game Started!**\n"
             f"Find words that rhyme with: **{target_word.upper()}**\n"
-            f"You have 12 seconds to submit as many rhyming words as possible!\n"
+            f"You have 15 seconds to submit as many rhyming words as possible!\n"
             f"Just type the words (no commands needed).\n"
             f"Anyone can participate!"
         )
         
         # Start collecting submissions
-        end_time = asyncio.get_event_loop().time() + 12.0
+        end_time = asyncio.get_event_loop().time() + 15.0
         
         while asyncio.get_event_loop().time() < end_time:
             try:
@@ -1602,7 +1602,7 @@ async def pikahelp_command(ctx):
 `!reveal` — Reveal the current word and end the round of the unscramble game.
 `!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix. PikaPoints are rewarded for winners.
 `!wordsearch` - Start an 8x8 word search game. Find three hidden words (4, 5, and 6 letters) in the grid.
-`!rhyme` - Start the rhyming words game. Find words that rhyme with the given word in 12 seconds. PikaPoints are rewarded for the player with the most rhyming words.
+`!rhyme` - Start the rhyming words game. Find words that rhyme with the given word in 15 seconds. PikaPoints are rewarded for the player with the most rhyming words.
 
 👑 **Admin Commands** (Administrator permissions required):
 `!grantpoints @user [amount]` - Grant PikaPoints to a user (max 1000 at once).

@@ -1217,11 +1217,11 @@ async def pikahelp_command(ctx):
 `!prefixgame` — Start the prefix word game, where you guess words starting with a random 3-letter prefix. PikaPoints are rewarded for winners.
 `!wordsearch` - Start a 5x5 word search game. Find two 5-7 letter words hidden in the grid.
 """
-    await ctx.send(pikahelp_text)
+        await ctx.send(pikahelp_text)
         await logger.log_command_usage(ctx, "pikahelp", success=True)
         
     except Exception as e:
-        await logger.log_error(se, "Help Command Error")
+        await logger.log_error(e, "Help Command Error")
         await logger.log_command_usage(ctx, "pikahelp", success=False)
 
 # ─── Bot Startup ─────────────────────────────────────────────────
